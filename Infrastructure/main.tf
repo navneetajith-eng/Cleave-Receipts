@@ -39,6 +39,10 @@ resource "google_cloud_run_v2_service" "backend" {
   ingress  = "INGRESS_TRAFFIC_ALL"
 
   template {
+    scaling {
+      max_instance_count = 1
+    }
+    
     containers {
       # Use a placeholder image initially; CI/CD will push the real one
       image = "us-docker.pkg.dev/cloudrun/container/hello"
