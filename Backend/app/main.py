@@ -3,10 +3,18 @@ from fastapi.middleware.cors import CORSMiddleware
 from app.api import routes
 from app.db.database import engine, Base
 
-# Create database tables
-Base.metadata.create_all(bind=engine)
+from contextlib import asynccontextmanager
 
-app = FastAPI(title="Fidelity API")
+@asynccontextmanager
+async def lifespan(app: FastAPI):
+    # Create database tables on startup
+    try:
+        Base.metadata.create_all(bind=engine)
+        print("Successfully connected to the database and created tables.")
+    except Exception as e:
+        print(f"Warning: Could not connect to database on startup: {e}")
+    yield
+app = FastAPI(title="Fidelity API", lifespan=lifespan)
 
 app.add_middleware(
     CORSMiddleware,
