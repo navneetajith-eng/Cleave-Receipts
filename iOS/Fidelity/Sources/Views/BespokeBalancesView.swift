@@ -53,14 +53,17 @@ struct BespokeBalancesView: View {
                     .padding(.horizontal, 30)
                     .padding(.top, 10)
                 
-                Text(String(format: "Including tax ($%.2f) and tip ($%.2f)", taxAmount, tipAmount))
-                    .font(.subheadline)
-                    .foregroundColor(.white.opacity(0.5))
-                    .padding(.horizontal, 30)
-                    .padding(.bottom, 20)
-                
                 ScrollView(showsIndicators: false) {
                     VStack(spacing: 20) {
+                        
+                        // Master Receipt Summary
+                        masterSummaryCard()
+                        
+                        Text("Individual Breakdown")
+                            .font(.system(.title3, design: .serif))
+                            .foregroundColor(.white)
+                            .frame(maxWidth: .infinity, alignment: .leading)
+                            .padding(.top, 10)
                         ForEach(memberBalances, id: \.0) { member, total, breakdown in
                             balanceCard(member: member, total: total, breakdown: breakdown)
                         }
@@ -164,6 +167,53 @@ struct BespokeBalancesView: View {
         .onAppear {
             calculateBalances()
         }
+    }
+    private func masterSummaryCard() -> some View {
+        let subtotal = items.reduce(0) { $0 + $1.1 }
+        let total = subtotal + taxAmount + tipAmount
+        
+        return VStack(spacing: 12) {
+            HStack {
+                Text("Receipt Subtotal")
+                    .foregroundColor(.white.opacity(0.7))
+                Spacer()
+                Text(String(format: "$%.2f", subtotal))
+                    .foregroundColor(.white.opacity(0.7))
+            }
+            
+            HStack {
+                Text("Tax")
+                    .foregroundColor(.white.opacity(0.7))
+                Spacer()
+                Text(String(format: "$%.2f", taxAmount))
+                    .foregroundColor(.white.opacity(0.7))
+            }
+            
+            HStack {
+                Text("Tip")
+                    .foregroundColor(.white.opacity(0.7))
+                Spacer()
+                Text(String(format: "$%.2f", tipAmount))
+                    .foregroundColor(.white.opacity(0.7))
+            }
+            
+            Divider().background(Color.white.opacity(0.3)).padding(.vertical, 4)
+            
+            HStack {
+                Text("Total Allocated")
+                    .font(.system(.title3, design: .serif))
+                    .fontWeight(.bold)
+                    .foregroundColor(.white)
+                Spacer()
+                Text(String(format: "$%.2f", total))
+                    .font(.system(.title3, design: .rounded))
+                    .fontWeight(.bold)
+                    .foregroundColor(DesignSystem.accentMustard)
+            }
+        }
+        .padding(24)
+        .background(Color.white.opacity(0.1))
+        .clipShape(RoundedRectangle(cornerRadius: 24, style: .continuous))
     }
     
     private func balanceCard(member: String, total: Double, breakdown: [BreakdownItem]) -> some View {
