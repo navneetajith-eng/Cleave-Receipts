@@ -74,9 +74,18 @@ def parseReceiptImage(image_bytes: bytes, mime_type: str = "image/jpeg") -> Pars
         )
     except Exception as e:
         print(f"Error parsing receipt with Gemini: {e}")
-        # Fallback in case of AI parsing failure (e.g. rate limit, bad photo)
+        # Fallback to mock data in case of AI parsing failure (e.g. rate limit, bad photo)
+        print("Returning mock data due to AI parsing failure.")
         return ParsedReceipt(
-            vendor_name="Parsing Error",
-            tax=0.0, tip=0.0, total=0.0,
-            line_items=[LineItemBase(description="Failed to parse", price=0.0)]
+            vendor_name="Mock Restaurant (Rate Limit Hit)",
+            tax=8.50,
+            tip=15.00,
+            total=108.50,
+            line_items=[
+                LineItemBase(description="Mock Burger", price=15.00),
+                LineItemBase(description="Mock Fries", price=5.00),
+                LineItemBase(description="Mock Steak", price=35.00),
+                LineItemBase(description="Mock Salad", price=10.00),
+                LineItemBase(description="Mock Wine", price=20.00),
+            ]
         )
