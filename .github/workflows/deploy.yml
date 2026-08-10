@@ -76,12 +76,6 @@ jobs:
           region: ${{ env.REGION }}
           image: ${{ env.REGION }}-docker.pkg.dev/${{ env.PROJECT_ID }}/${{ env.REPO_NAME }}/${{ env.SERVICE_NAME }}:${{ github.sha }}
           flags: '--allow-unauthenticated'
-          env_vars: |
-            DATABASE_URL=${{ secrets.SUPABASE_DATABASE_URL }}
-            GEMINI_API_KEY=${{ secrets.GEMINI_API_KEY }}
-            SUPABASE_URL=${{ secrets.SUPABASE_URL }}
-            SUPABASE_SECRET_KEY=${{ secrets.SUPABASE_SECRET_KEY }}
-            GCS_BUCKET_NAME=${{ secrets.GCP_PROJECT_ID }}-receipt-images
 
       - name: Verify deployed API health
         run: curl --fail --show-error --silent --retry 5 --retry-all-errors "${{ steps.deploy.outputs.url }}/health"

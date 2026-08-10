@@ -144,6 +144,11 @@ Cloud Run by `.github/workflows/deploy.yml`; they are not duplicated in GitHub.
 Push to `main` only after reviewing the changes. The workflow runs backend tests,
 builds the image, deploys it, and verifies `/health`.
 
+The workflow updates only the container image and preserves Terraform-managed
+environment and secret bindings. Secret versions are pinned in Terraform; test
+a rotated version on a zero-traffic tagged revision before changing the pinned
+version and promoting it.
+
 ## 6. Configure the iOS Release build
 
 1. Copy `iOS/Config/CleaveSecrets.example.xcconfig` to
@@ -208,8 +213,8 @@ product decision or a payment-provider callback.
   and authenticated; Application Default Credentials still require completion.
 - The Release xcconfig has the Supabase publishable key and deployed API URL;
   its Apple Team ID is still unset.
-- The three Secret Manager containers exist. Their initial versions and the
-  database-password rotation are not complete. Do not migrate Cloud Run to
-  secret references before every secret has an enabled version.
+- The database password is rotated. Cloud Run revision 15 uses the dedicated
+  runtime identity and pinned Secret Manager versions for database, Gemini, and
+  Supabase credentials.
 - A public support URL and privacy-policy URL still need to be chosen.
 - Settlement confirmation and crash/error monitoring still need product choices.

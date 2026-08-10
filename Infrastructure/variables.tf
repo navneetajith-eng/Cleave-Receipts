@@ -38,16 +38,49 @@ variable "database_url_secret_id" {
   default     = "cleave-database-url"
 }
 
+variable "database_url_secret_version" {
+  description = "Pinned enabled version of the database URL secret"
+  type        = string
+  default     = "3"
+
+  validation {
+    condition     = can(regex("^[1-9][0-9]*$", var.database_url_secret_version))
+    error_message = "The database secret version must be a positive integer."
+  }
+}
+
 variable "gemini_api_key_secret_id" {
   description = "Secret Manager ID containing the Gemini API key"
   type        = string
   default     = "cleave-gemini-api-key"
 }
 
+variable "gemini_api_key_secret_version" {
+  description = "Pinned enabled version of the Gemini API key secret"
+  type        = string
+  default     = "1"
+
+  validation {
+    condition     = can(regex("^[1-9][0-9]*$", var.gemini_api_key_secret_version))
+    error_message = "The Gemini secret version must be a positive integer."
+  }
+}
+
 variable "supabase_secret_key_secret_id" {
   description = "Secret Manager ID containing the backend-only Supabase secret key"
   type        = string
   default     = "cleave-supabase-secret-key"
+}
+
+variable "supabase_secret_key_secret_version" {
+  description = "Pinned enabled version of the Supabase backend secret"
+  type        = string
+  default     = "1"
+
+  validation {
+    condition     = can(regex("^[1-9][0-9]*$", var.supabase_secret_key_secret_version))
+    error_message = "The Supabase secret version must be a positive integer."
+  }
 }
 
 variable "supabase_url" {

@@ -3,3 +3,8 @@ region              = "us-central1"
 supabase_url        = "https://YOUR_PROJECT_REF.supabase.co"
 receipt_bucket_name = "YOUR_GCP_PROJECT_ID-receipt-images"
 backend_image       = "us-central1-docker.pkg.dev/YOUR_GCP_PROJECT_ID/fidelity-repo/fidelity-backend:EXISTING_TAG"
+
+# Increment these only after adding and validating a new enabled secret version.
+database_url_secret_version        = "3"
+gemini_api_key_secret_version      = "1"
+supabase_secret_key_secret_version = "1"
