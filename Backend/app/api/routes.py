@@ -305,8 +305,10 @@ def delete_my_account(
     user: AuthenticatedUser = Depends(get_current_user),
 ):
     supabase_url = os.environ.get("SUPABASE_URL", "").rstrip("/")
-    service_role_key = os.environ.get("SUPABASE_SERVICE_ROLE_KEY", "")
-    if not supabase_url or not service_role_key:
+    secret_key = os.environ.get("SUPABASE_SECRET_KEY", "") or os.environ.get(
+        "SUPABASE_SERVICE_ROLE_KEY", ""
+    )
+    if not supabase_url or not secret_key:
         raise HTTPException(
             status_code=503,
             detail="Account deletion is temporarily unavailable",
@@ -318,8 +320,8 @@ def delete_my_account(
         response = httpx.delete(
             f"{supabase_url}/auth/v1/admin/users/{user.id}",
             headers={
-                "Authorization": f"Bearer {service_role_key}",
-                "apikey": service_role_key,
+                "Authorization": f"Bearer {secret_key}",
+                "apikey": secret_key,
             },
             timeout=10,
         )

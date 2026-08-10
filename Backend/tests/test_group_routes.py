@@ -352,10 +352,18 @@ def test_account_deletion_removes_profile_after_identity_provider_accepts(
         status_code = 204
 
     monkeypatch.setenv("SUPABASE_URL", "https://project.supabase.co")
-    monkeypatch.setenv("SUPABASE_SERVICE_ROLE_KEY", "service-role-key")
+    monkeypatch.setenv("SUPABASE_SECRET_KEY", "sb_secret_backend")
+    monkeypatch.delenv("SUPABASE_SERVICE_ROLE_KEY", raising=False)
+    delete_request = {}
+
+    def accept_delete(*args, **kwargs):
+        delete_request["args"] = args
+        delete_request["kwargs"] = kwargs
+        return AcceptedResponse()
+
     monkeypatch.setattr(
         "app.api.routes.httpx.delete",
-        lambda *args, **kwargs: AcceptedResponse(),
+        accept_delete,
     )
     deleted_objects = []
     monkeypatch.setattr(
@@ -390,3 +398,7 @@ def test_account_deletion_removes_profile_after_identity_provider_accepts(
     assert db.query(domain.Profile).filter(domain.Profile.id == USER_1).first() is None
     assert db.query(domain.Group).filter(domain.Group.id == group_id).first() is None
     assert set(deleted_objects) == {"receipts/scan.jpg", "receipts/memory.jpg"}
+    assert delete_request["kwargs"]["headers"] == {
+        "Authorization": "Bearer sb_secret_backend",
+        "apikey": "sb_secret_backend",
+    }
