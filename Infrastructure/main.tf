@@ -1,6 +1,11 @@
 terraform {
   required_version = ">= 1.5.0"
 
+  backend "gcs" {
+    bucket = "gen-lang-client-0983510869-terraform-state"
+    prefix = "cleave/production"
+  }
+
   required_providers {
     google = {
       source  = "hashicorp/google"

@@ -97,6 +97,9 @@ Terraform adopts the live bucket, Artifact Registry repository, and Cloud Run
 service; enforces public-access prevention on the bucket; creates a dedicated
 least-privilege runtime identity; and mounts the three backend secrets. Do not
 apply a plan that replaces the bucket, repository, or Cloud Run service.
+Production state is stored in the private, versioned
+`gen-lang-client-0983510869-terraform-state` bucket under
+`cleave/production`; never commit a local state file.
 
 ## 5. Configure automatic backend deployment
 
@@ -189,8 +192,8 @@ product decision or a payment-provider callback.
   and authenticated; Application Default Credentials still require completion.
 - The Release xcconfig has the Supabase publishable key and deployed API URL;
   its Apple Team ID is still unset.
-- The three Secret Manager containers/versions and database-password rotation
-  are not complete. Do not migrate Cloud Run to secret references before every
-  secret has an enabled version.
+- The three Secret Manager containers exist. Their initial versions and the
+  database-password rotation are not complete. Do not migrate Cloud Run to
+  secret references before every secret has an enabled version.
 - A public support URL and privacy-policy URL still need to be chosen.
 - Settlement confirmation and crash/error monitoring still need product choices.
