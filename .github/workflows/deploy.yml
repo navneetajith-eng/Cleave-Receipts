@@ -50,8 +50,23 @@ jobs:
       - name: Set up Cloud SDK
         uses: google-github-actions/setup-gcloud@v3
 
-      - name: Verify private receipt bucket
-        run: gcloud storage buckets describe "gs://$PROJECT_ID-receipt-images"
+      - name: Provision private receipt bucket
+        run: |
+          if ! gcloud storage buckets describe "gs://$PROJECT_ID-receipt-images" >/dev/null 2>&1; then
+            gcloud storage buckets create "gs://$PROJECT_ID-receipt-images" \
+              --location="$REGION" \
+              --uniform-bucket-level-access
+          fi
+          runtime_service_account="$(gcloud run services describe "$SERVICE_NAME" \
+            --region="$REGION" \
+            --format='value(spec.template.spec.serviceAccountName)')"
+          if [ -z "$runtime_service_account" ]; then
+            project_number="$(gcloud projects describe "$PROJECT_ID" --format='value(projectNumber)')"
+            runtime_service_account="$project_number-compute@developer.gserviceaccount.com"
+          fi
+          gcloud storage buckets add-iam-policy-binding "gs://$PROJECT_ID-receipt-images" \
+            --member="serviceAccount:$runtime_service_account" \
+            --role="roles/storage.objectUser"
 
       - name: Configure Docker to use Google Artifact Registry
         run: gcloud auth configure-docker $REGION-docker.pkg.dev --quiet
