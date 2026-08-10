@@ -5,7 +5,7 @@ import {
     "artifactregistry.googleapis.com",
     "run.googleapis.com",
     "secretmanager.googleapis.com",
-    "storage.googleapis.com",
+    "storage-api.googleapis.com",
   ])
 
   to = google_project_service.required[each.value]
