@@ -74,6 +74,7 @@ jobs:
             DATABASE_URL=${{ secrets.SUPABASE_DATABASE_URL }}
             GEMINI_API_KEY=${{ secrets.GEMINI_API_KEY }}
             SUPABASE_URL=${{ secrets.SUPABASE_URL }}
+            SUPABASE_SECRET_KEY=${{ secrets.SUPABASE_SECRET_KEY }}
             GCS_BUCKET_NAME=${{ secrets.GCP_PROJECT_ID }}-receipt-images
 
       - name: Verify deployed API health
