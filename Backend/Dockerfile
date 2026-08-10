@@ -18,6 +18,10 @@ RUN pip install --no-cache-dir -r requirements.txt
 # Copy application code
 COPY . .
 
+# The API does not need root privileges at runtime.
+RUN useradd --create-home --uid 10001 cleave
+USER cleave
+
 # Expose port
 EXPOSE 8000
 

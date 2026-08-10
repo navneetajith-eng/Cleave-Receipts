@@ -1,91 +1,63 @@
 import os
-import json
-import google.generativeai as genai
-from app.models.schemas import ParsedReceipt, LineItemBase
 
-# The API Key should be set in the environment before starting the FastAPI server
-api_key = os.environ.get("GEMINI_API_KEY", "")
-if api_key:
-    genai.configure(api_key=api_key)
+from dotenv import load_dotenv
+
+from app.models.schemas import ParsedReceipt
+
+load_dotenv()
 
 def parseReceiptImage(image_bytes: bytes, mime_type: str = "image/jpeg") -> ParsedReceipt:
     """
-    Parses a receipt image using Google's Gemini 1.5 Flash Vision model.
-    If the API key is not set, it returns mock data to keep the app working.
+    Parses a receipt image using Google's Gemini 3.5 Flash-Lite vision model.
+    Raises a user-safe error if the parser is unavailable or cannot confidently
+    return structured receipt data. Production must never invent financial data.
     """
+    api_key = os.environ.get("GEMINI_API_KEY", "")
     if not api_key:
-        print("WARNING: GEMINI_API_KEY not set. Returning mock data.")
-        return ParsedReceipt(
-            vendor_name="Mock Restaurant (Missing API Key)",
-            tax=8.50,
-            tip=15.00,
-            total=108.50,
-            line_items=[
-                LineItemBase(description="Mock Burger", price=15.00),
-                LineItemBase(description="Mock Fries", price=5.00),
-                LineItemBase(description="Mock Steak", price=35.00),
-                LineItemBase(description="Mock Salad", price=10.00),
-                LineItemBase(description="Mock Wine", price=20.00),
-            ]
-        )
+        raise ValueError("Receipt scanning is temporarily unavailable")
 
-    # Initialize the model (Flash is fast, multimodal, and cheap/free)
-    model = genai.GenerativeModel('gemini-flash-latest')
-    
+    # Import lazily so API routes that do not scan receipts stay lightweight.
+    from google import genai
+    from google.genai import types
+
     prompt = """
-    Extract the receipt details from this image. 
-    Return ONLY a valid JSON object with exactly these fields:
-    {
-        "vendor_name": "Name of the restaurant or store",
-        "tax": float (the tax amount, or 0.0),
-        "tip": float (the tip amount, or 0.0),
-        "total": float (the final total amount),
-        "line_items": [
-            {
-                "description": "Item name",
-                "price": float (the price of the item)
-            }
-        ]
-    }
-    Make sure to extract all line items (the actual food/drink ordered). 
-    Do NOT include subtotals, tax, or tip as line items.
+    Extract the merchant, totals, and every purchased item from this receipt.
+
+    Receipt line-item rules:
+    - Transcribe every physical purchased row exactly once, in top-to-bottom order.
+    - Never merge or deduplicate repeated products. If the same product appears twice,
+      return two separate line_items, even when the names and prices are identical.
+    - Preserve the printed item name, but omit SKU, UPC, register codes, and trailing
+      tax/availability flags from the description.
+    - Use the price printed at the far right of that item row.
+    - Keep discounts, coupons, subtotals, tax, tip, payment details, barcodes, and
+      footer text out of line_items.
+    - Do not infer missing rows or prices. If a purchased row is readable but its
+      price is unclear, still return the row only when the price can be determined.
+    - Represent discounts or member savings as one positive discount value.
+    - The extracted line items should reconcile with the receipt subtotal when the
+      receipt provides enough information; do not change item prices to force a match.
     """
-    
+
     try:
-        response = model.generate_content([
-            {'mime_type': mime_type, 'data': image_bytes},
-            prompt
-        ], generation_config=genai.types.GenerationConfig(
-            response_mime_type="application/json"
-        ))
-        
-        # Parse the JSON string from Gemini into our Pydantic model
-        data = json.loads(response.text)
-        
-        return ParsedReceipt(
-            vendor_name=data.get("vendor_name", "Unknown Vendor"),
-            tax=float(data.get("tax", 0.0)),
-            tip=float(data.get("tip", 0.0)),
-            total=float(data.get("total", 0.0)),
-            line_items=[
-                LineItemBase(description=item["description"], price=float(item["price"])) 
-                for item in data.get("line_items", [])
-            ]
-        )
-    except Exception as e:
-        print(f"Error parsing receipt with Gemini: {e}")
-        # Fallback to mock data in case of AI parsing failure (e.g. rate limit, bad photo)
-        print("Returning mock data due to AI parsing failure.")
-        return ParsedReceipt(
-            vendor_name="Mock Restaurant (Rate Limit Hit)",
-            tax=8.50,
-            tip=15.00,
-            total=108.50,
-            line_items=[
-                LineItemBase(description="Mock Burger", price=15.00),
-                LineItemBase(description="Mock Fries", price=5.00),
-                LineItemBase(description="Mock Steak", price=35.00),
-                LineItemBase(description="Mock Salad", price=10.00),
-                LineItemBase(description="Mock Wine", price=20.00),
-            ]
-        )
+        with genai.Client(api_key=api_key) as client:
+            response = client.models.generate_content(
+                model=os.environ.get("GEMINI_MODEL", "gemini-3.5-flash-lite"),
+                contents=[
+                    prompt,
+                    types.Part.from_bytes(data=image_bytes, mime_type=mime_type),
+                ],
+                config=types.GenerateContentConfig(
+                    response_mime_type="application/json",
+                    response_schema=ParsedReceipt,
+                ),
+            )
+        if isinstance(response.parsed, ParsedReceipt):
+            return response.parsed
+        if response.text:
+            return ParsedReceipt.model_validate_json(response.text)
+        raise ValueError("The parser returned no receipt data")
+    except Exception as error:
+        raise ValueError(
+            "We couldn't read that receipt. Try a clearer, well-lit photo."
+        ) from error

@@ -1,0 +1,70 @@
+# macOS
+.DS_Store
+*.swp
+*.swo
+
+# Xcode
+*.xcuserdata/
+xcuserdata/
+DerivedData/
+*.xcworkspace/xcuserdata/
+build/
+*.pbxuser
+*.mode1v3
+*.mode2v3
+*.perspectivev3
+*.moved-aside
+iOS/Config/CleaveSecrets.xcconfig
+
+# Swift Package Manager
+.build/
+Packages/
+
+# Python
+__pycache__/
+*.pyc
+*.pyo
+venv/
+.venv/
+*.egg-info/
+.pytest_cache/
+
+# Environment & Secrets
+.env
+*.env.local
+*.env.production
+gha-creds-*.json
+
+# Logs
+*.log
+job.log
+job2.log
+
+# Database
+*.db
+cleave.db
+
+# Temporary scripts (not part of the app)
+fix_*.py
+update_*.py
+rewrite_*.py
+test_models.py
+
+# IDE
+.vscode/
+.idea/
+
+# Infrastructure state (contains secrets)
+*.tfstate
+*.tfstate.backup
+.terraform/
+terraform.tfvars
+
+# Misc
+supabase_source.html
+xcodegen.zip
+.freebuff/
+iOS/*.py
+iOS/*.rb
+iOS/*_extracted.png
+iOS/*_transparent.png
