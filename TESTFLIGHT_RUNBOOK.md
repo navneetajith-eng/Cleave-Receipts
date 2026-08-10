@@ -64,6 +64,22 @@ App Store Connect. Secret values are added with `gcloud secrets versions add`;
 Terraform intentionally manages secret containers and IAM, not secret versions,
 so plaintext values never enter Terraform state.
 
+After rotating the database password, populate each version from Terminal with
+the secure prompt helper. The pasted value is not echoed or stored in shell
+history:
+
+```sh
+./Infrastructure/add-secret-version.sh cleave-database-url
+./Infrastructure/add-secret-version.sh cleave-gemini-api-key
+./Infrastructure/add-secret-version.sh cleave-supabase-secret-key
+```
+
+Confirm only version status—never payloads—with:
+
+```sh
+gcloud secrets versions list SECRET_NAME
+```
+
 ## 4. Provision Google Cloud resources
 
 Terraform and Google Cloud CLI are installed on this Mac. The CLI lives at
