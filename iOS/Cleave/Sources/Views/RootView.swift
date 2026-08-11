@@ -118,6 +118,17 @@ struct RootView: View {
                 }
             }
         }
+        .fullScreenCover(
+            isPresented: Binding(
+                get: { session.isPasswordRecovery },
+                set: { isPresented in
+                    guard !isPresented, session.isPasswordRecovery else { return }
+                    Task { await session.cancelPasswordRecovery() }
+                }
+            )
+        ) {
+            PasswordUpdateView()
+        }
     }
 }
 

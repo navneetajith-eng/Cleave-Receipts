@@ -39,11 +39,15 @@ signing secret into Google Cloud.
 3. Confirm the migration history includes `001_authoritative_api.sql`,
    `002_release_hardening.sql`, `003_profiles_and_inbox.sql`, and
    `004_backend_only_data_api.sql`. Apply only missing migrations, in order.
-5. Open **Table Editor** and confirm these tables exist:
+4. Open **Table Editor** and confirm these tables exist:
    `profiles`, `groups`, `group_members`, `receipts`, `receipt_items`,
    `receipt_assignments`, `receipt_memories`, `receipt_experiences`, and
    `settlements`.
-6. Confirm Row Level Security is enabled for all public application tables.
+5. Confirm Row Level Security is enabled for all public application tables.
+6. Open **Authentication → URL Configuration** and add
+   `cleave://auth-callback` to **Redirect URLs**. This custom URL is required
+   for password-recovery emails to return users to the password-update screen
+   in the iOS app.
 
 Do not run `schema.sql` over an existing database. It is the reference schema
 for a new project.
@@ -216,5 +220,9 @@ product decision or a payment-provider callback.
 - The database password is rotated. Cloud Run revision 15 uses the dedicated
   runtime identity and pinned Secret Manager versions for database, Gemini, and
   Supabase credentials.
-- A public support URL and privacy-policy URL still need to be chosen.
+- Support and privacy-policy pages are published at
+  `https://navneetajith-eng.github.io/cleave/support/` and
+  `https://navneetajith-eng.github.io/cleave/privacy/`.
+- `cleave://auth-callback` still needs to be added to the Supabase Auth redirect
+  allowlist if it is not already present.
 - Settlement confirmation and crash/error monitoring still need product choices.

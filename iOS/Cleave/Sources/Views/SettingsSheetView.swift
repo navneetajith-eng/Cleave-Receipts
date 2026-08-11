@@ -207,17 +207,63 @@ struct PrivacyPolicyView: View {
                     .foregroundColor(Color.black.opacity(0.85))
                     .padding(.horizontal, 30)
 
+                Text("Effective August 11, 2026")
+                    .font(.system(size: 13, weight: .semibold, design: .rounded))
+                    .foregroundColor(.black.opacity(0.5))
+                    .padding(.horizontal, 30)
+
                 ScrollView(showsIndicators: false) {
                     VStack(alignment: .leading, spacing: 24) {
-                        policySection(title: "1. Information Collection", content: "We collect information you provide directly to us, such as when you create an account, scan receipts, or use our collaborative features. This includes images of receipts and any associated metadata.")
+                        Text("Cleave makes shared expenses simpler without turning your receipts into an advertising profile. This policy describes the Cleave iOS app, website, and related services.")
+                            .font(.system(size: 16, weight: .semibold, design: .rounded))
+                            .foregroundColor(.black.opacity(0.72))
+                            .lineSpacing(4)
 
-                        policySection(title: "2. Use of Information", content: "We use the information we collect to provide, maintain, and improve our services, particularly to accurately parse and split your receipts.")
+                        policySection(
+                            title: "1. Information We Collect",
+                            content: "Account and profile information includes your email address, username, account identifier, and optional profile photo. Collaborative information includes group names, membership, invitations, inbox activity, and the people you split with. Receipt and purchase information includes receipt images, merchants, line items, amounts, tax, tip, discounts, assignments, balances, settlements, ratings, and optional memory photos. Our online services also generate security and service logs, including request identifiers, IP addresses, timestamps, and error details."
+                        )
 
-                        policySection(title: "3. Data Security", content: "We implement robust security measures, including Row-Level Security on our databases, to ensure your data is protected against unauthorized access.")
+                        policySection(
+                            title: "2. How We Use Information",
+                            content: "We use information to authenticate you, operate local and collaborative groups, parse receipts, calculate and reconcile splits, synchronize devices, deliver group activity, provide support, secure the service, diagnose errors, and improve reliability. We do not sell personal information, use it for targeted advertising, or track you across other companies’ apps and websites."
+                        )
 
-                        policySection(title: "4. Third-Party Services", content: "We may use third-party services (like Google Gemini) for processing receipt images. We only share the minimum necessary information with these services.")
+                        policySection(
+                            title: "3. Sharing and Service Providers",
+                            content: "Members can see information shared with their collaborative group. Supabase provides authentication and database infrastructure. Google Cloud hosts the backend, private media, and operational logs. Google Gemini receives receipt images and parsing instructions. Apple processes Sign in with Apple and App Store services. We may also disclose information when required by law or needed to protect people or the service."
+                        )
 
-                        policySection(title: "5. Your Rights", content: "You have the right to access, correct, or delete your personal data. You can request deletion of your account and associated data through the app settings.")
+                        policySection(
+                            title: "4. Storage, Security, and Retention",
+                            content: "Collaborative records are stored in a protected database. Receipt images, profile photos, and memory photos are held in private cloud storage and returned only after an access check. Cleave uses encrypted network connections and access controls. We retain account content while your account is active or as needed to operate the service. Logs and backups may remain for a limited period after deletion or when required for legal, security, fraud-prevention, or dispute-resolution purposes."
+                        )
+
+                        policySection(
+                            title: "5. Your Choices and Deletion",
+                            content: "You can update your username and profile photo, manage camera and photo-library access in iOS Settings, and sign out at any time. Settings → Delete Account permanently removes your authentication account, profile, owned groups and associated receipts, assignments, ratings, uploaded media, and account-scoped local cache. Content belonging to other users may remain where their rights or records require it."
+                        )
+
+                        policySection(
+                            title: "6. Children and International Processing",
+                            content: "Cleave is not directed to children under 13, and we do not knowingly collect their personal information. Our providers may process information in countries with different data-protection laws and use safeguards appropriate to the service and applicable law."
+                        )
+
+                        policySection(
+                            title: "7. Changes and Contact",
+                            content: "We may update this policy as Cleave changes and will post the revised effective date. For access, correction, deletion, support, or privacy questions, email cleave.receipts@gmail.com. We may need to verify your identity before fulfilling a request."
+                        )
+
+                        Link(
+                            "View the full policy online",
+                            destination: URL(string: "https://navneetajith-eng.github.io/cleave/privacy/")!
+                        )
+                        .font(.system(size: 16, weight: .bold, design: .rounded))
+                        .foregroundColor(DesignSystem.accentNavy)
+                        .frame(maxWidth: .infinity)
+                        .padding()
+                        .background(Color.white)
+                        .clipShape(RoundedRectangle(cornerRadius: 16, style: .continuous))
                     }
                     .padding(.horizontal, 30)
                     .padding(.bottom, 40)
