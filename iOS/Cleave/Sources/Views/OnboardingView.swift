@@ -252,10 +252,15 @@ struct OnboardingView: View {
                 .background(.white.opacity(0.58), in: RoundedRectangle(cornerRadius: 18, style: .continuous))
             }
 
-            Label("Cleave never moves money or stores bank credentials.", systemImage: "lock.fill")
+            Label(
+                "Cleave checks the format, not ownership. Your handle is shared only with collaborative group members. Cleave never moves money or stores bank credentials.",
+                systemImage: "lock.fill"
+            )
                 .font(.custom("AvenirNext-DemiBold", size: 12))
                 .foregroundStyle(.black.opacity(0.42))
                 .frame(maxWidth: .infinity, alignment: .center)
+                .multilineTextAlignment(.center)
+                .fixedSize(horizontal: false, vertical: true)
         }
         .padding(.top, 28)
     }

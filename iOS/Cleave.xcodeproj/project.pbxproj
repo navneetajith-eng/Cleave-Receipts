@@ -41,6 +41,7 @@
 		F37A22E6570D7F8A4BDA6430 /* Assets.xcassets in Resources */ = {isa = PBXBuildFile; fileRef = DF0CF1BA96715AA49E8A68D6 /* Assets.xcassets */; };
 		F6256E4409510AD3CF8D716C /* SearchRowSkeletonView.swift in Sources */ = {isa = PBXBuildFile; fileRef = 3739B00C299E0FD813D39B7B /* SearchRowSkeletonView.swift */; };
 		F76F16E7218C692882C5E15C /* CleaveApp.swift in Sources */ = {isa = PBXBuildFile; fileRef = 5D2CE2F03AB3886CA17957A5 /* CleaveApp.swift */; };
+		F784AD76839366BD999D29DA /* PhotoImport.swift in Sources */ = {isa = PBXBuildFile; fileRef = 61E5F8FE10A50C27E725AA1D /* PhotoImport.swift */; };
 		FA17A07BEE50EFE769369323 /* PrivacyInfo.xcprivacy in Resources */ = {isa = PBXBuildFile; fileRef = 8D2543C33E95E4C47587F1E4 /* PrivacyInfo.xcprivacy */; };
 /* End PBXBuildFile section */
 
@@ -69,6 +70,7 @@
 		488F4F571C00C2EF0317B56E /* AuthView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = AuthView.swift; sourceTree = "<group>"; };
 		4AF423B7198894A4ED339066 /* PaymentDeepLinkBuilder.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = PaymentDeepLinkBuilder.swift; sourceTree = "<group>"; };
 		5D2CE2F03AB3886CA17957A5 /* CleaveApp.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = CleaveApp.swift; sourceTree = "<group>"; };
+		61E5F8FE10A50C27E725AA1D /* PhotoImport.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = PhotoImport.swift; sourceTree = "<group>"; };
 		6228CB31E68BC4DBF774173C /* AppConfiguration.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = AppConfiguration.swift; sourceTree = "<group>"; };
 		6CAFE94A614192519019FFEC /* ProductMetrics.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ProductMetrics.swift; sourceTree = "<group>"; };
 		6D90BC2B0D84F77C904CA3C8 /* CleaveModelsTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = CleaveModelsTests.swift; sourceTree = "<group>"; };
@@ -189,6 +191,7 @@
 			children = (
 				7BFAE633707466C4B06C55F8 /* CurrencyManager.swift */,
 				87E2C96D583D1F167F01F61F /* DocumentScanner.swift */,
+				61E5F8FE10A50C27E725AA1D /* PhotoImport.swift */,
 			);
 			path = Utils;
 			sourceTree = "<group>";
@@ -358,6 +361,7 @@
 				5B525495FF230578E66ACED4 /* NewGroupSheetView.swift in Sources */,
 				71EF0B291D046E3AE0809CBE /* OnboardingView.swift in Sources */,
 				8ABC70D4E7ABB0A9A353C2AA /* PaymentDeepLinkBuilder.swift in Sources */,
+				F784AD76839366BD999D29DA /* PhotoImport.swift in Sources */,
 				F344F58A556341CDBB52AA4D /* ProductMetrics.swift in Sources */,
 				950056D30947328C3FCA251E /* ProfileSheetView.swift in Sources */,
 				BB7A1F6A5EAD8D2F22786354 /* ReceiptSkeletonView.swift in Sources */,
@@ -458,7 +462,7 @@
 				ASSETCATALOG_COMPILER_APPICON_NAME = AppIcon;
 				CODE_SIGN_ENTITLEMENTS = Cleave/Cleave.entitlements;
 				CODE_SIGN_IDENTITY = "iPhone Developer";
-				CURRENT_PROJECT_VERSION = 1;
+				CURRENT_PROJECT_VERSION = 2;
 				GENERATE_INFOPLIST_FILE = NO;
 				INFOPLIST_FILE = Cleave/Resources/Info.plist;
 				INFOPLIST_KEY_NSAppTransportSecurity_NSAllowsLocalNetworking = YES;
@@ -498,7 +502,7 @@
 				ASSETCATALOG_COMPILER_APPICON_NAME = AppIcon;
 				CODE_SIGN_ENTITLEMENTS = Cleave/Cleave.entitlements;
 				CODE_SIGN_IDENTITY = "iPhone Developer";
-				CURRENT_PROJECT_VERSION = 1;
+				CURRENT_PROJECT_VERSION = 2;
 				GENERATE_INFOPLIST_FILE = NO;
 				INFOPLIST_FILE = Cleave/Resources/Info.plist;
 				LD_RUNPATH_SEARCH_PATHS = (

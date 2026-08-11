@@ -29,6 +29,17 @@ final class CleaveAPI {
                 return "Cleave couldn't understand the server response."
             }
         }
+
+        var shouldKeepReceiptDraft: Bool {
+            switch self {
+            case .server(let status, _):
+                return status == 408 || status == 429 || status >= 500
+            case .configuration, .unauthorized:
+                return true
+            case .invalidResponse, .decoding:
+                return true
+            }
+        }
     }
 
     private struct ErrorEnvelope: Decodable { let detail: String? }

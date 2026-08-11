@@ -236,6 +236,21 @@ final class CleaveModelsTests: XCTestCase {
         XCTAssertNil(ProductMetrics.percentile(0.5, values: []))
     }
 
+    func testReceiptDraftsOnlyPersistForRetryableFailures() {
+        XCTAssertFalse(
+            CleaveAPI.APIError.server(status: 422, message: "Unreadable receipt").shouldKeepReceiptDraft
+        )
+        XCTAssertFalse(
+            CleaveAPI.APIError.server(status: 413, message: "Too large").shouldKeepReceiptDraft
+        )
+        XCTAssertTrue(
+            CleaveAPI.APIError.server(status: 429, message: "Try later").shouldKeepReceiptDraft
+        )
+        XCTAssertTrue(
+            CleaveAPI.APIError.server(status: 503, message: "Unavailable").shouldKeepReceiptDraft
+        )
+    }
+
     @MainActor
     func testDeletedAccountClearsAccountScopedCache() {
         let userID = UUID()
