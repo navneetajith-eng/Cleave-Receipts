@@ -53,6 +53,20 @@ def _serialize_group(group: domain.Group) -> dict:
     }
 
 
+def _serialize_group_with_profiles(group: domain.Group, profiles: list[domain.Profile]) -> dict:
+    return {
+        "id": group.id,
+        "name": group.name,
+        "created_by": group.created_by,
+        "is_collaborative": group.is_collaborative,
+        "created_at": group.created_at,
+        "members": [
+            {"id": profile.id, "username": profile.username}
+            for profile in sorted(profiles, key=lambda value: (value.username.casefold(), value.id))
+        ],
+    }
+
+
 def _membership(db: Session, group_id: str, user_id: str) -> domain.GroupMember | None:
     return (
         db.query(domain.GroupMember)
@@ -71,7 +85,9 @@ def _require_group_access(
     *,
     require_owner: bool = False,
 ) -> domain.Group:
-    group = _group_query(db).filter(domain.Group.id == group_id).first()
+    # Access checks do not need the members collection. Avoiding eager loading
+    # here saves two database round trips on every receipt mutation.
+    group = db.query(domain.Group).filter(domain.Group.id == group_id).first()
     if group is None:
         raise HTTPException(status_code=404, detail="Group not found")
     if require_owner:
@@ -187,17 +203,25 @@ def bootstrap_profile(
     user: AuthenticatedUser = Depends(get_current_user),
 ):
     existing = db.query(domain.Profile).filter(domain.Profile.id == user.id).first()
-    if existing:
-        return existing
     if user.email and profile.email.casefold() != user.email.casefold():
         raise HTTPException(status_code=403, detail="Email does not match authenticated user")
     username = profile.username.strip()
     username_taken = (
-        db.query(domain.Profile).filter(domain.Profile.username == username).first()
+        db.query(domain.Profile)
+        .filter(domain.Profile.username == username, domain.Profile.id != user.id)
+        .first()
         is not None
     )
     if username_taken:
         username = f"{username[:31]}-{user.id[:8]}"
+    if existing:
+        # Supabase's auth trigger creates a fallback profile before this route
+        # runs. Replace that fallback with the username chosen in onboarding.
+        if existing.username != username:
+            existing.username = username
+            db.commit()
+            db.refresh(existing)
+        return existing
     created = domain.Profile(
         id=user.id,
         email=user.email or profile.email,
@@ -422,15 +446,14 @@ def create_group(
     db: Session = Depends(get_db),
     user: AuthenticatedUser = Depends(get_current_user),
 ):
-    creator = db.query(domain.Profile).filter(domain.Profile.id == user.id).first()
-    if creator is None:
-        raise HTTPException(status_code=409, detail="Create your profile before creating a group")
-
     requested_ids = set(payload.member_ids)
     requested_ids.add(user.id)
     profiles = db.query(domain.Profile).filter(domain.Profile.id.in_(requested_ids)).all()
     if len(profiles) != len(requested_ids):
         raise HTTPException(status_code=400, detail="One or more selected members no longer exist")
+    creator = next((profile for profile in profiles if profile.id == user.id), None)
+    if creator is None:
+        raise HTTPException(status_code=409, detail="Create your profile before creating a group")
 
     group = domain.Group(
         id=str(uuid.uuid4()),
@@ -455,8 +478,10 @@ def create_group(
                     title=f"You were added to {group.name}",
                     body=f"{creator.username} added you to a collaborative group.",
                 ))
+    db.flush()
+    response = _serialize_group_with_profiles(group, profiles)
     db.commit()
-    return _serialize_group(_group_query(db).filter(domain.Group.id == group.id).one())
+    return response
 
 
 @router.get("/groups", response_model=List[schemas.Group])
@@ -507,14 +532,17 @@ def add_group_member(
     db: Session = Depends(get_db),
     user: AuthenticatedUser = Depends(get_current_user),
 ):
-    _require_group_access(db, group_id, user, require_owner=True)
-    if db.query(domain.Profile).filter(domain.Profile.id == payload.user_id).first() is None:
+    group = _require_group_access(db, group_id, user, require_owner=True)
+    profiles = db.query(domain.Profile).filter(
+        domain.Profile.id.in_({user.id, payload.user_id})
+    ).all()
+    profile_by_id = {profile.id: profile for profile in profiles}
+    if payload.user_id not in profile_by_id:
         raise HTTPException(status_code=404, detail="Profile not found")
     existing = _membership(db, group_id, payload.user_id)
     if existing is None:
         db.add(domain.GroupMember(group_id=group_id, user_id=payload.user_id))
-        group = _group_query(db).filter(domain.Group.id == group_id).one()
-        actor = db.query(domain.Profile).filter(domain.Profile.id == user.id).one()
+        actor = profile_by_id[user.id]
         db.add(domain.InboxItem(
             id=str(uuid.uuid4()),
             user_id=payload.user_id,
@@ -524,8 +552,17 @@ def add_group_member(
             title=f"You were added to {group.name}",
             body=f"{actor.username} added you to a collaborative group.",
         ))
+        db.flush()
+    member_profiles = (
+        db.query(domain.Profile)
+        .join(domain.GroupMember, domain.GroupMember.user_id == domain.Profile.id)
+        .filter(domain.GroupMember.group_id == group_id)
+        .all()
+    )
+    response = _serialize_group_with_profiles(group, member_profiles)
+    if existing is None:
         db.commit()
-    return _serialize_group(_group_query(db).filter(domain.Group.id == group_id).one())
+    return response
 
 
 @router.get("/groups/{group_id}/receipts", response_model=List[schemas.Receipt])
@@ -870,6 +907,26 @@ def save_receipt_experience(
     db.commit()
     db.refresh(experience)
     return experience
+
+
+@router.get(
+    "/receipts/{receipt_id}/experience",
+    response_model=schemas.ReceiptExperience | None,
+)
+def get_receipt_experience(
+    receipt_id: str,
+    db: Session = Depends(get_db),
+    user: AuthenticatedUser = Depends(get_current_user),
+):
+    _require_receipt_access(db, receipt_id, user)
+    return (
+        db.query(domain.ReceiptExperience)
+        .filter(
+            domain.ReceiptExperience.receipt_id == receipt_id,
+            domain.ReceiptExperience.user_id == user.id,
+        )
+        .first()
+    )
 
 
 @router.get("/receipts/{receipt_id}/balances", response_model=List[schemas.Balance])

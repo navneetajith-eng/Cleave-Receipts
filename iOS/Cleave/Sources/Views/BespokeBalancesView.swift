@@ -183,7 +183,9 @@ struct BespokeBalancesView: View {
         .task {
             calculateBalances()
             if store.getGroup(id: groupId)?.isCollaborative == true {
-                await loadAuthoritativeBalances()
+                async let balances: Void = loadAuthoritativeBalances()
+                async let experience: Void = loadSavedExperience()
+                _ = await (balances, experience)
             }
         }
     }
@@ -224,6 +226,16 @@ struct BespokeBalancesView: View {
             }
         } catch {
             ErrorManager.shared.showError(error.localizedDescription)
+        }
+    }
+
+    @MainActor
+    private func loadSavedExperience() async {
+        do {
+            rating = try await CleaveAPI.shared.fetchExperienceRating(receiptID: receiptId) ?? 0
+        } catch {
+            // Rating is supplementary; balances and receipt review remain usable.
+            rating = 0
         }
     }
 

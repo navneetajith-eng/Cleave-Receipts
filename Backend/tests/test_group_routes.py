@@ -302,12 +302,47 @@ def test_receipt_experience_is_upserted_per_user(app, db):
         f"/api/receipts/{receipt['id']}/experience",
         json={"rating": 5},
     )
+    fetched = client.get(f"/api/receipts/{receipt['id']}/experience")
 
     assert created.status_code == 200
     assert updated.json()["rating"] == 5
+    assert fetched.status_code == 200
+    assert fetched.json()["rating"] == 5
     experiences = db.query(domain.ReceiptExperience).all()
     assert len(experiences) == 1
     assert experiences[0].rating == 5
+
+
+def test_receipt_experience_is_private_to_current_user(app):
+    client = TestClient(app)
+    group = client.post(
+        "/api/groups",
+        json={"name": "Experience", "is_collaborative": True, "member_ids": [USER_2]},
+    ).json()
+    receipt = client.post(
+        f"/api/groups/{group['id']}/receipts/manual",
+        json={"title": "Cafe", "items": [{"name": "Tea", "price": 3.0}]},
+    ).json()
+    client.put(f"/api/receipts/{receipt['id']}/experience", json={"rating": 4})
+
+    app.dependency_overrides[get_current_user] = lambda: AuthenticatedUser(id=USER_2)
+    response = client.get(f"/api/receipts/{receipt['id']}/experience")
+
+    assert response.status_code == 200
+    assert response.json() is None
+
+
+def test_bootstrap_uses_onboarding_username_for_trigger_created_profile(app, db):
+    client = TestClient(app)
+
+    response = client.post(
+        "/api/profiles/bootstrap",
+        json={"username": "Chosen Name", "email": "one@example.com"},
+    )
+
+    assert response.status_code == 200
+    assert response.json()["username"] == "Chosen Name"
+    assert db.query(domain.Profile).filter(domain.Profile.id == USER_1).one().username == "Chosen Name"
 
 
 def test_memory_content_requires_receipt_access_and_streams_private_object(

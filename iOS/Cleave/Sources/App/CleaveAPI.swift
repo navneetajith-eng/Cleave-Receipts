@@ -253,6 +253,13 @@ final class CleaveAPI {
         )
     }
 
+    func fetchExperienceRating(receiptID: String) async throws -> Int? {
+        let response: ReceiptExperienceResponse? = try await send(
+            path: "receipts/\(receiptID)/experience"
+        )
+        return response?.rating
+    }
+
     func updateReceipt(
         receiptID: String,
         title: String,
