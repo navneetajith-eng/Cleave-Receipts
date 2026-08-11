@@ -12,6 +12,7 @@ struct BespokeAssignmentView: View {
     let initialTax: Double
     let initialTip: Double
     let initialDiscount: Double
+    let currency: Currency
 
     @EnvironmentObject var store: AppStore
 
@@ -28,7 +29,7 @@ struct BespokeAssignmentView: View {
         DesignSystem.accentPeach
     ]
 
-    init(receiptId: String, groupId: UUID, appState: Binding<AppState>, namespace: Namespace.ID, initialTitle: String, initialItems: [ReceiptItem], initialAssignments: [String: Set<String>] = [:], initialTax: Double, initialTip: Double, initialDiscount: Double) {
+    init(receiptId: String, groupId: UUID, appState: Binding<AppState>, namespace: Namespace.ID, initialTitle: String, initialItems: [ReceiptItem], initialAssignments: [String: Set<String>] = [:], initialTax: Double, initialTip: Double, initialDiscount: Double, currency: Currency) {
         self.receiptId = receiptId
         self.groupId = groupId
         self._appState = appState
@@ -39,6 +40,7 @@ struct BespokeAssignmentView: View {
         self.initialTax = initialTax
         self.initialTip = initialTip
         self.initialDiscount = initialDiscount
+        self.currency = currency
 
         self._title = State(initialValue: initialTitle)
         self._items = State(initialValue: initialItems)
@@ -74,110 +76,130 @@ struct BespokeAssignmentView: View {
         subtotal + tax + tip - discount
     }
 
+    private var assignedItemCount: Int {
+        items.filter { !(assignments[$0.id] ?? []).isEmpty }.count
+    }
+
     var body: some View {
         ZStack {
             DesignSystem.canvasBeige.ignoresSafeArea()
 
-            VStack(spacing: 0) {
-                // Header
-                HStack {
-                    Button(action: {
+            VStack(alignment: .leading, spacing: 0) {
+                HStack(alignment: .center) {
+                    CleaveIconButton(systemName: "xmark", accessibilityText: "Close receipt") {
                         withAnimation(.spring(response: 0.6, dampingFraction: 0.8)) {
-                            appState = .home
+                            appState = .groupDetail(group: groupId)
                         }
-                    }) {
-                        Image(systemName: "chevron.down.circle.fill")
-                            .font(.system(size: 32))
-                            .foregroundColor(.black.opacity(0.7))
                     }
                     Spacer()
+
+                    Text("\(assignedItemCount)/\(items.count) ASSIGNED")
+                        .font(DesignSystem.labelFont(10))
+                        .tracking(1.2)
+                        .foregroundStyle(assignedItemCount == items.count ? DesignSystem.accentTeal : DesignSystem.inkMuted)
+                        .padding(.horizontal, 12)
+                        .frame(height: 34)
+                        .background(DesignSystem.surface.opacity(0.78))
+                        .clipShape(Capsule())
                 }
-                .padding(.horizontal, 30)
-                .padding(.top, 60)
+                .padding(.horizontal, 22)
+                .padding(.top, 58)
 
-                HStack {
-                    TextField("Receipt Title", text: $title)
-                        .font(.system(size: 40, weight: .semibold, design: .serif))
-                        .foregroundColor(.black)
-                        .tint(.black) // Cursor color
+                VStack(alignment: .leading, spacing: 6) {
+                    Text("SPLIT THIS RECEIPT")
+                        .font(DesignSystem.labelFont(10))
+                        .tracking(1.8)
+                        .foregroundStyle(DesignSystem.accentOrange)
 
-                    Image(systemName: "pencil")
-                        .font(.system(size: 20))
-                        .foregroundColor(.black.opacity(0.5))
+                    HStack(spacing: 8) {
+                        TextField(
+                            "Receipt title",
+                            text: $title,
+                            prompt: Text("Receipt title").foregroundStyle(DesignSystem.ink.opacity(0.34))
+                        )
+                            .font(DesignSystem.displayFont(31))
+                            .foregroundStyle(DesignSystem.ink)
+                            .tint(DesignSystem.accentTeal)
+                            .lineLimit(1)
 
-                    Spacer()
+                        Image(systemName: "pencil")
+                            .font(.system(size: 15, weight: .bold))
+                            .foregroundStyle(DesignSystem.inkMuted)
+                    }
+
+                    Text("Tap everyone who shared each item.")
+                        .font(DesignSystem.bodyFont(14))
+                        .foregroundStyle(DesignSystem.inkMuted)
                 }
-                .padding(.horizontal, 30)
-                .padding(.top, 10)
-                .padding(.bottom, 20)
+                .padding(.horizontal, 22)
+                .padding(.top, 18)
+                .padding(.bottom, 16)
 
-                // List of items
                 ScrollView(showsIndicators: false) {
-                    VStack(spacing: 20) {
+                    VStack(spacing: 14) {
                         ForEach(items.indices, id: \.self) { index in
                             receiptItemRow(index: index)
                         }
 
-                        Divider().background(Color.white.opacity(0.3)).padding(.vertical, 10)
+                        Divider().overlay(Color.white.opacity(0.28)).padding(.vertical, 5)
 
-                        // Tax and Tip (Editable but not assignable)
                         nonAssignableRow(title: "Tax", value: tax, target: .tax)
                         nonAssignableRow(title: "Tip", value: tip, target: .tip)
 
-                        // Summary Card
                         VStack(spacing: 10) {
                             HStack {
                                 Text("Subtotal")
+                                    .font(DesignSystem.bodyFont(14))
                                     .foregroundColor(.white.opacity(0.8))
                                 Spacer()
-                                Text(CurrencyManager.shared.format(subtotal))
+                                Text(CurrencyManager.format(subtotal, currency: currency))
+                                    .font(DesignSystem.bodyFont(14))
                                     .foregroundColor(.white.opacity(0.8))
                             }
 
                             HStack {
                                 Text("Total")
-                                    .font(.system(.title3, design: .serif))
-                                    .fontWeight(.bold)
+                                    .font(DesignSystem.titleFont(19))
                                     .foregroundColor(.white)
                                 Spacer()
-                                Text(CurrencyManager.shared.format(total))
-                                    .font(.system(.title3, design: .rounded))
-                                    .fontWeight(.bold)
+                                Text(CurrencyManager.format(total, currency: currency))
+                                    .font(DesignSystem.displayFont(20))
                                     .foregroundColor(.white)
                             }
                         }
-                        .padding(24)
+                        .padding(20)
                         .background(Color.black.opacity(0.2))
-                        .clipShape(RoundedRectangle(cornerRadius: 16, style: .continuous))
-
+                        .clipShape(RoundedRectangle(cornerRadius: 18, style: .continuous))
                     }
-                    .padding(30)
-                    .padding(.vertical, 10)
+                    .padding(18)
+                    .padding(.bottom, 8)
                     .background(DesignSystem.color(forGroupId: groupId.uuidString, in: store.groups))
                     .clipShape(ReceiptCardShape())
-                    .padding(.horizontal, 20)
-                    .padding(.bottom, 120)
-                    .shadow(color: DesignSystem.color(forGroupId: groupId.uuidString, in: store.groups).opacity(0.3), radius: 25, y: 15)
+                    .padding(.horizontal, 14)
+                    .padding(.bottom, 22)
+                    .shadow(color: DesignSystem.color(forGroupId: groupId.uuidString, in: store.groups).opacity(0.22), radius: 18, y: 10)
                 }
             }
-
-
-            // Floating Action Button to proceed
-            VStack {
-                Spacer()
+            .safeAreaInset(edge: .bottom) {
                 Button(action: handleCalculateBalances) {
                     HStack(spacing: 10) {
                         if isSaving {
                             ProgressView()
                                 .tint(.white)
                         }
-                        Text(isSaving ? "Saving…" : "Calculate Balances")
+                        Text(isSaving ? "Saving…" : "See balances")
+                        if !isSaving {
+                            Image(systemName: "arrow.right")
+                                .font(.system(size: 14, weight: .black))
+                        }
                     }
                 }
                 .primaryButton()
+                .buttonStyle(PressScaleButtonStyle())
                 .disabled(isSaving)
-                .padding(.horizontal, 40)
-                .padding(.bottom, 40)
+                .padding(.horizontal, 22)
+                .padding(.vertical, 12)
+                .background(.ultraThinMaterial)
             }
 
             // Custom Edit Modal Overlay
@@ -190,22 +212,28 @@ struct BespokeAssignmentView: View {
 
                 VStack(spacing: 20) {
                     Text(targetTitle)
-                        .font(.system(.title3, design: .serif))
+                        .font(DesignSystem.displayFont(24))
                         .foregroundColor(.white)
 
                     if case .item(_) = target {
-                        TextField("Item Name", text: $editName)
+                        TextField("Item name", text: $editName, prompt: Text("Item name").foregroundStyle(.white.opacity(0.48)))
+                            .font(DesignSystem.bodyFont(16))
                             .padding()
                             .background(Color.white.opacity(0.15))
                             .cornerRadius(12)
                             .foregroundColor(.white)
+                            .tint(.white)
                     }
 
                     HStack {
-                        Text("$").foregroundColor(.white.opacity(0.7))
-                        TextField("Amount", text: $editPrice)
+                        Text(CurrencyManager.shared.currentCurrency.symbol)
+                            .font(DesignSystem.labelFont(12))
+                            .foregroundColor(.white.opacity(0.7))
+                        TextField("Amount", text: $editPrice, prompt: Text("Amount").foregroundStyle(.white.opacity(0.48)))
+                            .font(DesignSystem.bodyFont(16))
                             .keyboardType(.decimalPad)
                             .foregroundColor(.white)
+                            .tint(.white)
                     }
                     .padding()
                     .background(Color.white.opacity(0.15))
@@ -215,6 +243,7 @@ struct BespokeAssignmentView: View {
                         Button("Cancel") {
                             withAnimation { editingTarget = nil }
                         }
+                        .font(DesignSystem.titleFont(15))
                         .frame(maxWidth: .infinity)
                         .padding()
                         .background(Color.white.opacity(0.15))
@@ -225,9 +254,10 @@ struct BespokeAssignmentView: View {
                             saveEdit()
                             withAnimation { editingTarget = nil }
                         }
+                        .font(DesignSystem.titleFont(15))
                         .frame(maxWidth: .infinity)
                         .padding()
-                        .background(Color.black.opacity(0.85))
+                        .background(DesignSystem.accentNavy)
                         .cornerRadius(12)
                         .foregroundColor(.white)
                     }
@@ -262,13 +292,14 @@ struct BespokeAssignmentView: View {
         return VStack(spacing: 16) {
             HStack {
                 Text(items[index].name)
-                    .font(.system(.title3, design: .serif))
+                    .font(DesignSystem.titleFont(17))
                     .foregroundColor(.white)
+                    .lineLimit(2)
                 Spacer()
 
                 HStack(spacing: 8) {
-                    Text(CurrencyManager.shared.format(items[index].price))
-                        .font(.system(.headline, design: .rounded))
+                    Text(CurrencyManager.format(items[index].price, currency: currency))
+                        .font(DesignSystem.titleFont(15))
                         .foregroundColor(.white.opacity(0.9))
 
                     Button(action: {
@@ -283,7 +314,7 @@ struct BespokeAssignmentView: View {
 
             // Inline Member Selectors
             ScrollView(.horizontal, showsIndicators: false) {
-                HStack(spacing: 15) {
+                HStack(spacing: 9) {
                     ForEach(Array(groupMembers.enumerated()), id: \.element.id) { _, member in
                         let memberID = member.id.uuidString
                         let isSelected = assignedMembers.contains(memberID)
@@ -305,20 +336,27 @@ struct BespokeAssignmentView: View {
 
                             }
                         }) {
-                            Text(String(member.displayName.prefix(1)))
-                                .font(.system(size: 18, weight: .bold, design: .rounded))
-                                .foregroundColor(fgColor)
-                                .frame(width: 44, height: 44)
-                                .background(
-                                    Circle()
-                                        .fill(isSelected ? .white : Color.white.opacity(0.1))
-                                )
-                                .overlay(
-                                    Circle()
-                                        .stroke(isSelected ? Color.white : Color.white.opacity(0.4), lineWidth: isSelected ? 2 : 1)
-                                )
-                                .shadow(color: isSelected ? Color.black.opacity(0.2) : .clear, radius: 8, y: 4)
-                                .scaleEffect(isSelected ? 1.1 : 1.0)
+                            HStack(spacing: 7) {
+                                Text(String(member.displayName.prefix(1)))
+                                    .font(DesignSystem.labelFont(11))
+                                    .frame(width: 26, height: 26)
+                                    .background(isSelected ? fgColor.opacity(0.12) : Color.white.opacity(0.13))
+                                    .clipShape(Circle())
+                                Text(member.displayName)
+                                    .font(DesignSystem.titleFont(13))
+                                    .lineLimit(1)
+                            }
+                            .foregroundColor(fgColor)
+                            .padding(.leading, 6)
+                            .padding(.trailing, 11)
+                            .frame(height: 40)
+                            .background(isSelected ? .white : Color.white.opacity(0.1))
+                            .clipShape(Capsule())
+                            .overlay(
+                                Capsule()
+                                    .stroke(isSelected ? Color.white : Color.white.opacity(0.34), lineWidth: 1)
+                            )
+                            .shadow(color: isSelected ? Color.black.opacity(0.16) : .clear, radius: 6, y: 3)
                         }
                     }
                 }
@@ -326,7 +364,7 @@ struct BespokeAssignmentView: View {
                 .padding(.vertical, 8) // Give breathing room for shadow
             }
         }
-        .padding(20)
+        .padding(17)
         .background(
             RoundedRectangle(cornerRadius: 16, style: .continuous)
                 .fill(Color.black.opacity(isAssigned ? 0.3 : 0.15))
@@ -340,12 +378,12 @@ struct BespokeAssignmentView: View {
     private func nonAssignableRow(title: String, value: Double, target: EditTarget) -> some View {
         HStack {
             Text(title)
-                .font(.system(.title3, design: .serif))
+                .font(DesignSystem.titleFont(16))
                 .foregroundColor(.white)
             Spacer()
             HStack(spacing: 8) {
-                Text(CurrencyManager.shared.format(value))
-                    .font(.system(.headline, design: .rounded))
+                Text(CurrencyManager.format(value, currency: currency))
+                    .font(DesignSystem.titleFont(15))
                     .foregroundColor(.white.opacity(0.9))
 
                 Button(action: {
@@ -425,7 +463,7 @@ struct BespokeAssignmentView: View {
 
     private func proceedToBalances() {
         withAnimation(.spring(response: 0.6, dampingFraction: 0.8)) {
-            appState = .balances(receiptId: receiptId, group: groupId, title: title, items: items, assignments: assignments, tax: tax, tip: tip, discount: discount)
+            appState = .balances(receiptId: receiptId, group: groupId, title: title, items: items, assignments: assignments, tax: tax, tip: tip, discount: discount, currency: currency)
         }
     }
 

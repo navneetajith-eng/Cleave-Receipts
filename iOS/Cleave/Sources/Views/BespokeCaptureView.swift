@@ -17,6 +17,7 @@ struct BespokeCaptureView: View {
     @State private var parsedDiscount: Double = 0
     @State private var parsedTitle: String = ""
     @State private var parsedReceiptId: String = ""
+    @State private var parsedCurrency: Currency = CurrencyManager.shared.currentCurrency
 
     @State private var selectedPhotoItem: PhotosPickerItem? = nil
 
@@ -25,88 +26,130 @@ struct BespokeCaptureView: View {
 
     var body: some View {
         ZStack {
-            // Premium Beige Background
             DesignSystem.canvasBeige.ignoresSafeArea()
 
-            VStack {
-                HStack {
-                    Button(action: {
+            CleaveReceiptWatermark(color: DesignSystem.accentOrange)
+                .rotationEffect(.degrees(10))
+                .position(x: 385, y: 155)
+                .opacity(0.45)
+
+            VStack(alignment: .leading, spacing: 0) {
+                HStack(alignment: .center) {
+                    CleaveIconButton(systemName: "xmark", accessibilityText: "Close scanner") {
                         withAnimation(.spring(response: 0.6, dampingFraction: 0.8)) {
                             appState = .groupDetail(group: groupId)
                         }
-                    }) {
-                        Image(systemName: "chevron.down.circle.fill")
-                            .font(.system(size: 32))
-                            .foregroundColor(Color.black.opacity(0.7))
                     }
                     Spacer()
+
+                    Text("SCAN")
+                        .font(DesignSystem.labelFont(10))
+                        .tracking(1.8)
+                        .foregroundStyle(DesignSystem.accentTeal)
                 }
-                .padding(.horizontal, 30)
-                .padding(.top, 60)
+                .padding(.horizontal, 22)
+                .padding(.top, 58)
 
-                Spacer()
+                CleaveSectionHeading(
+                    showParsedItems ? "Receipt found" : "Capture the receipt",
+                    eyebrow: showParsedItems ? "Ready to review" : nil,
+                    detail: showParsedItems ? "We found \(parsedItems.count) items." : "Keep the full receipt inside the frame."
+                )
+                .padding(.horizontal, 22)
+                .padding(.top, 18)
+                .padding(.bottom, 18)
 
-                // Minimalistic Apple Document Scanner corner brackets
                 ZStack {
+                    RoundedRectangle(cornerRadius: 28, style: .continuous)
+                        .fill(DesignSystem.surface.opacity(0.72))
+                        .overlay(
+                            RoundedRectangle(cornerRadius: 28, style: .continuous)
+                                .stroke(DesignSystem.hairline, lineWidth: 1)
+                        )
+
                     ScannerCorners()
-                        .frame(width: 320, height: 480)
+                        .padding(18)
                         .opacity(isScanning ? 0.3 : 1.0)
                         .animation(.easeInOut(duration: 0.3), value: isScanning)
 
+                    if !isScanning && !showParsedItems {
+                        VStack(spacing: 18) {
+                            Image(systemName: "doc.text.viewfinder")
+                                .font(.system(size: 56, weight: .light))
+                                .foregroundStyle(DesignSystem.accentTeal)
+
+                            VStack(spacing: 9) {
+                                ForEach([0.72, 0.9, 0.55], id: \.self) { width in
+                                    Capsule()
+                                        .fill(DesignSystem.ink.opacity(0.1))
+                                        .frame(width: 150 * width, height: 7)
+                                }
+                            }
+                        }
+                    }
+
                     if isScanning && !showParsedItems {
-                        VStack(spacing: 30) {
+                        VStack(spacing: 24) {
                             FlatScanningAnimation()
 
-                            Text("Analyzing Receipt...")
-                                .font(.system(.headline, design: .rounded))
-                                .foregroundColor(DesignSystem.bgNavy)
-                                .opacity(0.8)
+                            Text("Reading the receipt…")
+                                .font(DesignSystem.titleFont(16))
+                                .foregroundStyle(DesignSystem.ink)
                         }
                         .transition(.scale.combined(with: .opacity))
                     }
 
-                    // Parsed items organically popping out
                     if showParsedItems {
-                        VStack(spacing: 8) {
-                            ForEach(Array(parsedItems.prefix(3).enumerated()), id: \.element.id) { index, item in
-                                let offsets: [(CGFloat, CGFloat)] = [(-20, -80), (40, 0), (-10, 80)]
-                                let offset = index < offsets.count ? offsets[index] : (0, 0)
+                        VStack(spacing: 10) {
+                            Image(systemName: "checkmark.circle.fill")
+                                .font(.system(size: 42, weight: .bold))
+                                .foregroundStyle(DesignSystem.accentTeal)
+                                .padding(.bottom, 5)
 
-                                Text("\(item.name)  \(CurrencyManager.shared.format(item.price))")
-                                    .padding(8)
-                                    .background(.ultraThinMaterial)
-                                    .clipShape(Capsule())
-                                    .offset(x: offset.0, y: offset.1)
+                            ForEach(Array(parsedItems.prefix(3).enumerated()), id: \.element.id) { index, item in
+                                HStack {
+                                    Text(item.name)
+                                        .lineLimit(1)
+                                    Spacer()
+                                    Text(CurrencyManager.shared.format(item.price))
+                                        .font(DesignSystem.titleFont(13))
+                                }
+                                .font(DesignSystem.bodyFont(14))
+                                .foregroundStyle(DesignSystem.ink)
+                                .padding(.horizontal, 14)
+                                .frame(width: 250, height: 44)
+                                .background(index.isMultiple(of: 2) ? DesignSystem.accentTeal.opacity(0.1) : DesignSystem.accentOrange.opacity(0.1))
+                                .clipShape(RoundedRectangle(cornerRadius: 13, style: .continuous))
                             }
                         }
-                        .foregroundColor(Color.black.opacity(0.85))
-                        .font(.system(.subheadline, design: .serif).weight(.medium))
                         .transition(.scale(scale: 0.8).combined(with: .opacity))
                     }
                 }
-
-                Spacer()
+                .frame(maxWidth: .infinity)
+                .frame(height: 360)
+                .padding(.horizontal, 22)
 
                 if showParsedItems {
                     Button(action: {
                         withAnimation(.spring(response: 0.6, dampingFraction: 0.8)) {
-                            appState = .assignment(receiptId: parsedReceiptId, group: groupId, title: parsedTitle, items: parsedItems, assignments: [:], tax: parsedTax, tip: parsedTip, discount: parsedDiscount)
+                            appState = .assignment(receiptId: parsedReceiptId, group: groupId, title: parsedTitle, items: parsedItems, assignments: [:], tax: parsedTax, tip: parsedTip, discount: parsedDiscount, currency: parsedCurrency)
                         }
                     }) {
-                        Text("Review Items")
+                        HStack {
+                            Text("Review items")
+                            Image(systemName: "arrow.right")
+                                .font(.system(size: 14, weight: .black))
+                        }
                     }
                     .primaryButton()
-                    .padding(40)
+                    .buttonStyle(PressScaleButtonStyle())
+                    .padding(.horizontal, 22)
+                    .padding(.top, 22)
                     .transition(.move(edge: .bottom).combined(with: .opacity))
                 } else {
-                    HStack(spacing: 40) {
+                    HStack(spacing: 12) {
                         PhotosPicker(selection: $selectedPhotoItem, matching: .images) {
-                            Image(systemName: "photo.on.rectangle")
-                                .font(.system(size: 30))
-                                .foregroundColor(Color.black.opacity(0.85))
-                                .frame(width: 70, height: 70)
-                                .background(Color.black.opacity(0.1))
-                                .clipShape(Circle())
+                            captureChoice(icon: "photo.on.rectangle", title: "Photo library", prominent: false)
                         }
                         .onChange(of: selectedPhotoItem) { _, newItem in
                             Task {
@@ -121,34 +164,15 @@ struct BespokeCaptureView: View {
                             UIImpactFeedbackGenerator(style: .medium).impactOccurred()
                             showingScanner = true
                         }) {
-                            // Native iOS Shutter Button Look
-                            Circle()
-                                .fill(Color.white)
-                                .frame(width: 64, height: 64)
-                                .overlay(
-                                    Circle()
-                                        .stroke(Color.black.opacity(0.1), lineWidth: 2)
-                                )
-                                .overlay(
-                                    Circle()
-                                        .stroke(Color.white, lineWidth: 4)
-                                        .frame(width: 76, height: 76)
-                                )
-                                .overlay(
-                                    Circle()
-                                        .stroke(Color.black.opacity(0.2), lineWidth: 1)
-                                        .frame(width: 80, height: 80)
-                                )
+                            captureChoice(icon: "camera.fill", title: "Open camera", prominent: true)
                         }
-
-                        // Placeholder for symmetry
-                        Color.clear
-                            .frame(width: 70, height: 70)
+                        .buttonStyle(PressScaleButtonStyle())
                     }
-                    .padding(.bottom, 50)
+                    .padding(.horizontal, 22)
+                    .padding(.top, 18)
                     .opacity(isScanning ? 0 : 1)
                 }
-
+                Spacer(minLength: 18)
             }
         }
         .fullScreenCover(isPresented: $showingScanner) {
@@ -162,6 +186,24 @@ struct BespokeCaptureView: View {
                 }
             }
         }
+    }
+
+    private func captureChoice(icon: String, title: String, prominent: Bool) -> some View {
+        HStack(spacing: 9) {
+            Image(systemName: icon)
+                .font(.system(size: 15, weight: .bold))
+            Text(title)
+                .font(DesignSystem.titleFont(14))
+        }
+        .foregroundStyle(prominent ? Color.white : DesignSystem.ink)
+        .frame(maxWidth: .infinity)
+        .frame(height: 54)
+        .background(prominent ? DesignSystem.accentNavy : DesignSystem.surface.opacity(0.82))
+        .clipShape(RoundedRectangle(cornerRadius: 17, style: .continuous))
+        .overlay(
+            RoundedRectangle(cornerRadius: 17, style: .continuous)
+                .stroke(prominent ? Color.clear : DesignSystem.hairline, lineWidth: 1)
+        )
     }
 
     private func uploadAndParseImage(_ image: UIImage) async {
@@ -180,15 +222,32 @@ struct BespokeCaptureView: View {
         do {
             let response: RemoteReceipt
             if let group = store.getGroup(id: groupId), !group.isCollaborative {
-                guard let userID = SupabaseManager.shared.currentUser?.id else {
+                guard let userID = DemoMode.effectiveUserID else {
                     throw CleaveAPI.APIError.unauthorized
                 }
-                let parsed = try await CleaveAPI.shared.parseReceiptImage(image: image)
+                let parsed: ParsedReceiptResponse
+                if DemoMode.isEnabled {
+                    parsed = ParsedReceiptResponse(
+                        vendorName: "Demo Market",
+                        tax: 2.35,
+                        tip: 0,
+                        discount: 1,
+                        total: 28.85,
+                        lineItems: [
+                            .init(description: "Sandwich", price: 12.50),
+                            .init(description: "Iced Coffee", price: 7.00),
+                            .init(description: "Fruit Bowl", price: 8.00)
+                        ]
+                    )
+                } else {
+                    parsed = try await CleaveAPI.shared.parseReceiptImage(image: image)
+                }
                 response = RemoteReceipt(
                     id: UUID(),
                     groupId: groupId,
                     title: parsed.vendorName,
                     adminId: userID,
+                    currencyCode: CurrencyManager.shared.currentCurrency.rawValue,
                     taxAmount: parsed.tax,
                     tipAmount: parsed.tip,
                     discountAmount: parsed.discount,
@@ -200,7 +259,11 @@ struct BespokeCaptureView: View {
                 )
                 await MainActor.run { store.saveLocalReceipt(response) }
             } else {
-                response = try await CleaveAPI.shared.uploadReceiptImage(image: image, groupID: groupId)
+                response = try await CleaveAPI.shared.uploadReceiptImage(
+                    image: image,
+                    groupID: groupId,
+                    currency: CurrencyManager.shared.currentCurrency
+                )
             }
             let fetchedItems = response.items
 
@@ -214,6 +277,7 @@ struct BespokeCaptureView: View {
                     self.parsedTax = response.taxAmount
                     self.parsedTip = response.tipAmount
                     self.parsedDiscount = response.discountAmount
+                    self.parsedCurrency = response.currency
                     self.showParsedItems = true
                     self.isScanning = false
                 }
@@ -267,7 +331,7 @@ struct ScannerCorners: View {
 
             context.stroke(
                 path,
-                with: .color(Color.black.opacity(0.6)),
+                with: .color(DesignSystem.accentTeal.opacity(0.72)),
                 style: StrokeStyle(lineWidth: thickness, lineCap: .round, lineJoin: .round)
             )
         }
@@ -275,50 +339,47 @@ struct ScannerCorners: View {
 }
 
 struct FlatScanningAnimation: View {
-    @State private var offset: CGFloat = -40
-    @State private var scale: CGFloat = 1.0
+    @State private var scanOffset: CGFloat = -66
 
     var body: some View {
         ZStack {
-            // Flat Receipt
-            RoundedRectangle(cornerRadius: 12)
-                .fill(Color.white)
-                .frame(width: 140, height: 180)
-                .overlay(
-                    RoundedRectangle(cornerRadius: 12)
-                        .stroke(DesignSystem.bgNavy, lineWidth: 6)
-                )
-                .overlay(
-                    VStack(alignment: .leading, spacing: 16) {
-                        RoundedRectangle(cornerRadius: 4)
-                            .fill(DesignSystem.bgNavy.opacity(0.3))
-                            .frame(width: 80, height: 12)
-                        RoundedRectangle(cornerRadius: 4)
-                            .fill(DesignSystem.bgNavy.opacity(0.3))
-                            .frame(width: 100, height: 12)
-                        RoundedRectangle(cornerRadius: 4)
-                            .fill(DesignSystem.bgNavy.opacity(0.3))
-                            .frame(width: 60, height: 12)
-                    }
-                    .padding(.top, -20)
-                )
-
-            // Magnifying Glass
-            Image(systemName: "magnifyingglass")
-                .font(.system(size: 60, weight: .bold))
-                .foregroundColor(DesignSystem.accentTeal)
-                .background(
+            VStack(alignment: .leading, spacing: 13) {
+                HStack {
+                    Capsule()
+                        .fill(DesignSystem.accentOrange)
+                        .frame(width: 52, height: 8)
+                    Spacer()
                     Circle()
-                        .fill(Color.white)
-                        .frame(width: 50, height: 50)
+                        .fill(DesignSystem.accentTeal)
+                        .frame(width: 9, height: 9)
+                }
+
+                ForEach([0.82, 1.0, 0.62, 0.9], id: \.self) { width in
+                    Capsule()
+                        .fill(DesignSystem.ink.opacity(0.12))
+                        .frame(width: 102 * width, height: 7)
+                }
+            }
+            .padding(20)
+            .frame(width: 142, height: 178)
+            .background(DesignSystem.surface)
+            .clipShape(ReceiptCardShape())
+            .shadow(color: DesignSystem.ink.opacity(0.12), radius: 14, y: 8)
+
+            Capsule()
+                .fill(
+                    LinearGradient(
+                        colors: [.clear, DesignSystem.accentTeal, .clear],
+                        startPoint: .leading,
+                        endPoint: .trailing
+                    )
                 )
-                .shadow(color: DesignSystem.bgNavy.opacity(0.15), radius: 10, y: 10)
-                .offset(x: offset, y: offset * 1.2)
-                .scaleEffect(scale)
+                .frame(width: 126, height: 3)
+                .shadow(color: DesignSystem.accentTeal.opacity(0.5), radius: 5)
+                .offset(y: scanOffset)
                 .onAppear {
-                    withAnimation(.easeInOut(duration: 1.2).repeatForever(autoreverses: true)) {
-                        offset = 40
-                        scale = 1.1
+                    withAnimation(.easeInOut(duration: 1.35).repeatForever(autoreverses: true)) {
+                        scanOffset = 66
                     }
                 }
         }

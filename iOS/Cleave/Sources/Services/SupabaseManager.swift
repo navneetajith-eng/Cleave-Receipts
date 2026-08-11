@@ -142,11 +142,15 @@ final class SupabaseManager: ObservableObject {
     func signOut() async throws {
         try await client.auth.signOut()
         currentUser = nil
+        isPasswordRecovery = false
+        PaymentPreferences.clear()
     }
 
     func completeAccountDeletion() async {
         try? await client.auth.signOut()
         currentUser = nil
+        isPasswordRecovery = false
+        PaymentPreferences.clear()
     }
 
     func accessToken() async throws -> String {

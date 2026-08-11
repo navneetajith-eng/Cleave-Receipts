@@ -37,22 +37,32 @@ struct BespokeGroupDetailView: View {
                                 appState = .home
                             }
                         }) {
-                            Image(systemName: "xmark.circle.fill")
-                                .font(.system(size: 32))
-                                .foregroundColor(Color.white.opacity(0.8))
+                            Image(systemName: "xmark")
+                                .font(.system(size: 15, weight: .bold))
+                                .foregroundColor(.white)
+                                .frame(width: 44, height: 44)
+                                .background(Color.white.opacity(0.16))
+                                .clipShape(Circle())
+                                .overlay(Circle().stroke(Color.white.opacity(0.2), lineWidth: 1))
                         }
+                        .buttonStyle(PressScaleButtonStyle())
                         Spacer()
                     }
                     .padding(.horizontal, 30)
                     .padding(.top, 60)
 
                     Text(group.name)
-                        .font(.system(size: 48, weight: .bold, design: .rounded))
+                        .font(DesignSystem.displayFont(42))
                         .foregroundColor(.white)
+                        .lineLimit(2)
+                        .minimumScaleFactor(0.78)
+                        .fixedSize(horizontal: false, vertical: true)
                         .padding(.horizontal, 30)
 
                     Text("\(group.members.count) members")
-                        .font(.system(size: 16, weight: .bold, design: .monospaced))
+                        .font(DesignSystem.labelFont(11))
+                        .tracking(1.5)
+                        .textCase(.uppercase)
                         .foregroundColor(Color.white.opacity(0.8))
                         .padding(.horizontal, 30)
 
@@ -66,11 +76,11 @@ struct BespokeGroupDetailView: View {
                                         .frame(width: 60, height: 60)
                                         .overlay(
                                             Text(String(member.displayName.prefix(1)))
-                                                .font(.system(size: 24, design: .serif))
+                                                .font(DesignSystem.titleFont(20))
                                                 .foregroundColor(.white)
                                         )
                                     Text(member.displayName)
-                                        .font(.caption)
+                                        .font(DesignSystem.bodyFont(11))
                                         .foregroundColor(Color.white.opacity(0.9))
                                 }
                             }
@@ -89,7 +99,7 @@ struct BespokeGroupDetailView: View {
                                                     .foregroundColor(Color.white.opacity(0.8))
                                             )
                                         Text("Add")
-                                            .font(.caption)
+                                            .font(DesignSystem.bodyFont(11))
                                             .foregroundColor(Color.white.opacity(0.7))
                                     }
                                 }
@@ -141,25 +151,34 @@ struct BespokeGroupDetailView: View {
                             HStack {
                                 Image(systemName: "camera.viewfinder")
                                 Text("Scan Receipt")
-                                    .font(.system(size: 18, weight: .bold, design: .rounded))
+                                    .font(DesignSystem.titleFont(18))
                             }
                             .foregroundColor(.white)
                             .frame(maxWidth: .infinity)
                             .padding(.vertical, 18)
-                            .background(Color.black.opacity(0.85))
+                            .background(
+                                ZStack {
+                                    color
+                                    Color.black.opacity(color == DesignSystem.cardNavy ? 0.12 : 0.24)
+                                }
+                            )
                             .clipShape(Capsule())
-                            .shadow(color: Color.black.opacity(0.2), radius: 10, y: 5)
+                            .overlay(Capsule().stroke(Color.white.opacity(0.16), lineWidth: 1))
+                            .shadow(color: color.opacity(0.42), radius: 12, y: 6)
                         }
                         .buttonStyle(PressScaleButtonStyle())
                         Button(action: {
                             HapticsManager.shared.playImpact(style: .medium)
                             showingManualEntry = true
                         }) {
-                            Text("Enter Manually")
-                                .font(.system(size: 16, weight: .bold, design: .rounded))
-                                .foregroundColor(Color.black.opacity(0.6))
+                            Label("Enter manually", systemImage: "square.and.pencil")
+                                .font(DesignSystem.titleFont(15))
+                                .foregroundColor(.white.opacity(0.92))
+                                .frame(maxWidth: .infinity)
+                                .padding(.vertical, 14)
+                                .overlay(Capsule().stroke(Color.white.opacity(0.32), lineWidth: 1))
                         }
-                        .padding(.top, 10)
+                        .buttonStyle(PressScaleButtonStyle())
                     }
                     .padding(40)
                 }
@@ -201,6 +220,7 @@ struct BespokeGroupDetailView: View {
         }
         .sheet(isPresented: $showingManualEntry) {
             ManualEntrySheetView(isPresented: $showingManualEntry, appState: $appState, groupId: groupId)
+                .presentationCornerRadius(34)
         }
         .task {
             if let g = self.group, g.isCollaborative {
@@ -229,12 +249,12 @@ struct BespokeGroupDetailView: View {
             HStack {
                 VStack(alignment: .leading, spacing: 4) {
                     Text(receipt.title)
-                        .font(.headline)
+                        .font(DesignSystem.titleFont(17))
                         .foregroundColor(.white)
 
                     HStack(spacing: 8) {
                         Text(displayDate(receipt.createdAt, formatter: formatter))
-                            .font(.subheadline)
+                            .font(DesignSystem.bodyFont(13))
                             .foregroundColor(Color.white.opacity(0.7))
 
                         if isAdmin {
@@ -252,10 +272,19 @@ struct BespokeGroupDetailView: View {
                     }
                 }
                 Spacer()
-                Text(CurrencyManager.shared.format(receipt.total))
-                    .font(.system(.title3, design: .rounded))
+                Text(CurrencyManager.format(receipt.total, currency: receipt.currency))
+                    .font(DesignSystem.titleFont(18))
                     .foregroundColor(.white)
             }
+
+            HStack(spacing: 8) {
+                Text("Review and split")
+                    .font(DesignSystem.titleFont(14))
+                Spacer()
+                Image(systemName: "chevron.right")
+                    .font(.system(size: 13, weight: .bold))
+            }
+            .foregroundColor(.white.opacity(0.9))
 
             if let memories = receipt.memories, !memories.isEmpty {
                 ScrollView(.horizontal, showsIndicators: false) {
@@ -274,6 +303,23 @@ struct BespokeGroupDetailView: View {
         .padding(20)
         .background(Color.white.opacity(0.15))
         .clipShape(RoundedRectangle(cornerRadius: 16, style: .continuous))
+        .contentShape(RoundedRectangle(cornerRadius: 16, style: .continuous))
+        .onTapGesture {
+            HapticsManager.shared.playImpact(style: .light)
+            withAnimation(.spring(response: 0.5, dampingFraction: 0.78)) {
+                appState = .assignment(
+                    receiptId: receipt.id.uuidString,
+                    group: groupId,
+                    title: receipt.title,
+                    items: receipt.items,
+                    assignments: [:],
+                    tax: receipt.taxAmount,
+                    tip: receipt.tipAmount,
+                    discount: receipt.discountAmount,
+                    currency: receipt.currency
+                )
+            }
+        }
     }
 
     private func receiptDraftCard(_ draft: ReceiptDraft) -> some View {
@@ -286,10 +332,10 @@ struct BespokeGroupDetailView: View {
 
             VStack(alignment: .leading, spacing: 4) {
                 Text("Receipt saved on this device")
-                    .font(.system(size: 15, weight: .bold, design: .rounded))
+                    .font(DesignSystem.titleFont(15))
                     .foregroundColor(.white)
                 Text("Scanning or sync didn't finish.")
-                    .font(.system(size: 13, design: .rounded))
+                    .font(DesignSystem.bodyFont(13))
                     .foregroundColor(.white.opacity(0.72))
             }
             Spacer()
@@ -300,7 +346,7 @@ struct BespokeGroupDetailView: View {
                     ProgressView().tint(.white)
                 } else {
                     Text("Retry")
-                        .font(.system(size: 14, weight: .bold, design: .rounded))
+                        .font(DesignSystem.titleFont(14))
                 }
             }
             .foregroundColor(.white)
@@ -326,18 +372,39 @@ struct BespokeGroupDetailView: View {
         do {
             let receipt: RemoteReceipt
             if group.isCollaborative {
-                receipt = try await CleaveAPI.shared.uploadReceiptImage(image: image, groupID: groupId)
+                receipt = try await CleaveAPI.shared.uploadReceiptImage(
+                    image: image,
+                    groupID: groupId,
+                    currency: CurrencyManager.shared.currentCurrency
+                )
                 remoteReceipts.insert(receipt, at: 0)
             } else {
-                guard let userID = SupabaseManager.shared.currentUser?.id else {
+                guard let userID = DemoMode.effectiveUserID else {
                     throw CleaveAPI.APIError.unauthorized
                 }
-                let parsed = try await CleaveAPI.shared.parseReceiptImage(image: image)
+                let parsed: ParsedReceiptResponse
+                if DemoMode.isEnabled {
+                    parsed = ParsedReceiptResponse(
+                        vendorName: "Demo Market",
+                        tax: 2.35,
+                        tip: 0,
+                        discount: 1,
+                        total: 28.85,
+                        lineItems: [
+                            .init(description: "Sandwich", price: 12.50),
+                            .init(description: "Iced Coffee", price: 7.00),
+                            .init(description: "Fruit Bowl", price: 8.00)
+                        ]
+                    )
+                } else {
+                    parsed = try await CleaveAPI.shared.parseReceiptImage(image: image)
+                }
                 receipt = RemoteReceipt(
                     id: UUID(),
                     groupId: groupId,
                     title: parsed.vendorName,
                     adminId: userID,
+                    currencyCode: CurrencyManager.shared.currentCurrency.rawValue,
                     taxAmount: parsed.tax,
                     tipAmount: parsed.tip,
                     discountAmount: parsed.discount,

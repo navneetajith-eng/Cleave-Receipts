@@ -11,6 +11,9 @@ class Profile(Base):
     email = Column(String, unique=True, index=True, nullable=False)
     username = Column(String, unique=True, index=True, nullable=False)
     avatar_url = Column(String, nullable=True)
+    region_code = Column(String(2), nullable=True)
+    venmo_username = Column(String(64), nullable=True)
+    upi_id = Column(String(255), nullable=True)
     created_at = Column(DateTime, default=func.now(), nullable=False)
 
 
@@ -54,6 +57,7 @@ class Receipt(Base):
     group_id = Column(Uuid(as_uuid=False), ForeignKey("groups.id", ondelete="CASCADE"), nullable=False)
     title = Column(String, nullable=False)
     admin_id = Column(Uuid(as_uuid=False), ForeignKey("profiles.id", ondelete="CASCADE"), nullable=False)
+    currency_code = Column(String(3), default="USD", nullable=False)
     tax_amount = Column(Numeric(12, 2), default=0, nullable=False)
     tip_amount = Column(Numeric(12, 2), default=0, nullable=False)
     discount_amount = Column(Numeric(12, 2), default=0, nullable=False)
@@ -140,6 +144,10 @@ class Settlement(Base):
     from_user_id = Column(Uuid(as_uuid=False), ForeignKey("profiles.id", ondelete="CASCADE"), nullable=False)
     to_user_id = Column(Uuid(as_uuid=False), ForeignKey("profiles.id", ondelete="CASCADE"), nullable=False)
     amount = Column(Numeric(12, 2), nullable=False)
+    currency_code = Column(String(3), default="USD", nullable=False)
+    status = Column(String(16), default="initiated", nullable=False)
+    initiated_at = Column(DateTime, default=func.now(), nullable=False)
+    confirmed_at = Column(DateTime, nullable=True)
     settled_at = Column(DateTime, default=func.now(), nullable=False)
 
 

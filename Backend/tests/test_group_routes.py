@@ -112,6 +112,62 @@ def test_collaborative_group_updates_recipient_inbox_and_friends(app):
     assert marked.json()["is_read"] is True
 
 
+def test_payment_details_are_private_but_available_to_shared_group_members(app, db):
+    client = TestClient(app)
+    updated = client.patch(
+        "/api/profiles/me/payment-details",
+        json={
+            "region_code": "US",
+            "venmo_username": "cleave-one",
+            "upi_id": None,
+        },
+    )
+    assert updated.status_code == 200
+    assert updated.json()["venmo_username"] == "cleave-one"
+
+    search = client.get("/api/profiles", params={"query": "one"})
+    assert search.status_code == 200
+    assert all("venmo_username" not in profile for profile in search.json())
+
+    group = client.post(
+        "/api/groups",
+        json={"name": "Private payments", "is_collaborative": True, "member_ids": [USER_2]},
+    )
+    assert group.status_code == 201
+    owner = next(member for member in group.json()["members"] if member["id"] == USER_1)
+    assert owner["region_code"] == "US"
+    assert owner["venmo_username"] == "cleave-one"
+
+    minimized = client.patch(
+        "/api/profiles/me/payment-details",
+        json={
+            "region_code": "IN",
+            "venmo_username": "must-not-remain",
+            "upi_id": "cleave@upi",
+        },
+    )
+    assert minimized.status_code == 200
+    assert minimized.json()["venmo_username"] is None
+    assert minimized.json()["upi_id"] == "cleave@upi"
+
+    app.dependency_overrides[get_current_user] = lambda: AuthenticatedUser(id=USER_3)
+    assert client.get("/api/groups").json() == []
+
+
+@pytest.mark.parametrize(
+    ("payload", "expected_detail"),
+    [
+        ({"region_code": "US", "venmo_username": None, "upi_id": None}, "Venmo"),
+        ({"region_code": "IN", "venmo_username": None, "upi_id": None}, "UPI"),
+    ],
+)
+def test_payment_details_require_the_selected_regions_identifier(app, payload, expected_detail):
+    response = TestClient(app).patch("/api/profiles/me/payment-details", json=payload)
+
+    assert response.status_code == 422
+    assert expected_detail in response.json()["detail"]
+
+
 def test_profile_photo_upload_and_download_are_private(app, monkeypatch):
     client = TestClient(app)
     monkeypatch.setattr(
@@ -183,6 +239,7 @@ def test_manual_receipt_is_persisted_under_authoritative_group(app):
         f"/api/groups/{group['id']}/receipts/manual",
         json={
             "title": "Cafe",
+            "currency_code": "USD",
             "tax_amount": 1.5,
             "tip_amount": 2.0,
             "discount_amount": 0,
@@ -193,6 +250,7 @@ def test_manual_receipt_is_persisted_under_authoritative_group(app):
     assert receipt_response.status_code == 200
     receipt = receipt_response.json()
     assert receipt["group_id"] == group["id"]
+    assert receipt["currency_code"] == "USD"
     assert receipt["items"][0]["name"] == "Coffee"
     assert client.get(f"/api/groups/{group['id']}/receipts").json()[0]["id"] == receipt["id"]
 
@@ -223,6 +281,7 @@ def test_receipt_edits_and_assignments_are_saved_atomically(app):
         f"/api/groups/{group['id']}/receipts/manual",
         json={
             "title": "Original",
+            "currency_code": "USD",
             "items": [
                 {"name": "Coffee", "price": 5.0},
                 {"name": "Cake", "price": 6.0},
@@ -268,7 +327,7 @@ def test_batch_assignments_reject_non_group_members(app):
     ).json()
     receipt = client.post(
         f"/api/groups/{group['id']}/receipts/manual",
-        json={"title": "Lunch", "items": [{"name": "Soup", "price": 4.0}]},
+        json={"title": "Lunch", "currency_code": "USD", "items": [{"name": "Soup", "price": 4.0}]},
     ).json()
 
     response = client.patch(
@@ -283,6 +342,130 @@ def test_batch_assignments_reject_non_group_members(app):
     assert response.status_code == 400
 
 
+def test_settlement_is_derived_for_signed_in_debtor_and_requires_confirmation(app):
+    client = TestClient(app)
+    group = client.post(
+        "/api/groups",
+        json={"name": "Settle", "is_collaborative": True, "member_ids": [USER_2]},
+    ).json()
+    receipt = client.post(
+        f"/api/groups/{group['id']}/receipts/manual",
+        json={
+            "title": "Dinner",
+            "currency_code": "INR",
+            "tax_amount": 0.01,
+            "items": [{"name": "Shared", "price": 10.00}],
+        },
+    ).json()
+    assignment = client.patch(
+        f"/api/receipts/{receipt['id']}/assignments",
+        json={
+            "items": [
+                {"item_id": receipt["items"][0]["id"], "user_ids": [USER_1, USER_2]}
+            ]
+        },
+    )
+    assert assignment.status_code == 200
+
+    app.dependency_overrides[get_current_user] = lambda: AuthenticatedUser(id=USER_2)
+    initiated = client.post(
+        "/api/settlements",
+        json={"receipt_id": receipt["id"], "to_user_id": USER_1},
+    )
+    assert initiated.status_code == 200
+    payload = initiated.json()
+    assert payload["from_user_id"] == USER_2
+    assert payload["to_user_id"] == USER_1
+    assert payload["amount"] == 5.0
+    assert payload["currency_code"] == "INR"
+    assert payload["status"] == "initiated"
+
+    confirmed = client.patch(f"/api/settlements/{payload['id']}/confirm")
+    assert confirmed.status_code == 200
+    assert confirmed.json()["status"] == "confirmed"
+    assert confirmed.json()["confirmed_at"] is not None
+
+    balances = client.get(f"/api/receipts/{receipt['id']}/balances")
+    debtor = next(value for value in balances.json() if value["user_id"] == USER_2)
+    assert debtor["total_owed"] == 0.0
+
+    duplicate = client.post(
+        "/api/settlements",
+        json={"receipt_id": receipt["id"], "to_user_id": USER_1},
+    )
+    assert duplicate.status_code == 409
+
+
+@pytest.mark.parametrize(
+    "payload",
+    [
+        {"title": "Zero", "currency_code": "USD", "items": [{"name": "Tea", "price": 0}]},
+        {
+            "title": "Discount",
+            "currency_code": "USD",
+            "discount_amount": 4,
+            "items": [{"name": "Tea", "price": 3}],
+        },
+        {
+            "title": "Huge",
+            "currency_code": "USD",
+            "items": [
+                {"name": "One", "price": 600_000},
+                {"name": "Two", "price": 600_000},
+            ],
+        },
+    ],
+)
+def test_manual_receipt_rejects_zero_malformed_and_unusually_large_totals(app, payload):
+    client = TestClient(app)
+    group = client.post(
+        "/api/groups",
+        json={"name": "Validation", "is_collaborative": False, "member_ids": []},
+    ).json()
+
+    response = client.post(f"/api/groups/{group['id']}/receipts/manual", json=payload)
+
+    assert response.status_code == 422
+
+
+def test_settlement_rejects_wrong_recipient_and_non_payer_confirmation(app):
+    client = TestClient(app)
+    group = client.post(
+        "/api/groups",
+        json={"name": "Settle", "is_collaborative": True, "member_ids": [USER_2, USER_3]},
+    ).json()
+    receipt = client.post(
+        f"/api/groups/{group['id']}/receipts/manual",
+        json={
+            "title": "Dinner",
+            "currency_code": "USD",
+            "items": [{"name": "Meal", "price": 12.00}],
+        },
+    ).json()
+    client.patch(
+        f"/api/receipts/{receipt['id']}/assignments",
+        json={
+            "items": [
+                {"item_id": receipt["items"][0]["id"], "user_ids": [USER_2]}
+            ]
+        },
+    )
+    app.dependency_overrides[get_current_user] = lambda: AuthenticatedUser(id=USER_2)
+    wrong_recipient = client.post(
+        "/api/settlements",
+        json={"receipt_id": receipt["id"], "to_user_id": USER_3},
+    )
+    assert wrong_recipient.status_code == 422
+
+    initiated = client.post(
+        "/api/settlements",
+        json={"receipt_id": receipt["id"], "to_user_id": USER_1},
+    ).json()
+    app.dependency_overrides[get_current_user] = lambda: AuthenticatedUser(id=USER_1)
+    forbidden = client.patch(f"/api/settlements/{initiated['id']}/confirm")
+    assert forbidden.status_code == 403
+
+
 def test_receipt_experience_is_upserted_per_user(app, db):
     client = TestClient(app)
     group = client.post(
@@ -291,7 +474,7 @@ def test_receipt_experience_is_upserted_per_user(app, db):
     ).json()
     receipt = client.post(
         f"/api/groups/{group['id']}/receipts/manual",
-        json={"title": "Cafe", "items": [{"name": "Tea", "price": 3.0}]},
+        json={"title": "Cafe", "currency_code": "USD", "items": [{"name": "Tea", "price": 3.0}]},
     ).json()
 
     created = client.put(
@@ -321,7 +504,7 @@ def test_receipt_experience_is_private_to_current_user(app):
     ).json()
     receipt = client.post(
         f"/api/groups/{group['id']}/receipts/manual",
-        json={"title": "Cafe", "items": [{"name": "Tea", "price": 3.0}]},
+        json={"title": "Cafe", "currency_code": "USD", "items": [{"name": "Tea", "price": 3.0}]},
     ).json()
     client.put(f"/api/receipts/{receipt['id']}/experience", json={"rating": 4})
 
@@ -355,7 +538,7 @@ def test_memory_content_requires_receipt_access_and_streams_private_object(
     ).json()
     receipt = client.post(
         f"/api/groups/{group['id']}/receipts/manual",
-        json={"title": "Cafe", "items": [{"name": "Tea", "price": 3.0}]},
+        json={"title": "Cafe", "currency_code": "USD", "items": [{"name": "Tea", "price": 3.0}]},
     ).json()
     db.add(
         domain.ReceiptMemory(

@@ -19,8 +19,8 @@ struct CollaborativeSearchSheetView: View {
             if !isEmbedded {
                 HStack {
                     Text("Add Friends")
-                        .font(.system(size: 24, weight: .bold, design: .rounded))
-                        .foregroundColor(.black)
+                        .font(DesignSystem.displayFont(24))
+                        .foregroundColor(DesignSystem.ink)
                     Spacer()
                     Button(action: { presentationMode.wrappedValue.dismiss() }) {
                         Image(systemName: "xmark.circle.fill")
@@ -31,9 +31,9 @@ struct CollaborativeSearchSheetView: View {
                 .padding(.top, 24)
                 .padding(.horizontal, 24)
             } else {
-                Text("Add Friends")
-                    .font(.system(size: 18, weight: .semibold, design: .rounded))
-                    .foregroundColor(.black)
+                Text("Search Cleave accounts")
+                    .font(DesignSystem.titleFont(17))
+                    .foregroundColor(DesignSystem.ink)
                     .padding(.horizontal, 30)
                     .frame(maxWidth: .infinity, alignment: .leading)
             }
@@ -45,7 +45,7 @@ struct CollaborativeSearchSheetView: View {
                         ForEach(selectedMembers) { member in
                             HStack {
                                 Text(member.username ?? "Unknown")
-                                    .font(.system(size: 14))
+                                    .font(DesignSystem.titleFont(14))
                                     .foregroundColor(.white)
                                 Button(action: {
                                     selectedMembers.removeAll(where: { $0.id == member.id })
@@ -66,18 +66,28 @@ struct CollaborativeSearchSheetView: View {
             }
 
             // Search Bar
-            HStack {
+            HStack(spacing: 10) {
                 Image(systemName: "magnifyingglass")
-                    .foregroundColor(Color.black.opacity(0.5))
-                TextField("Search by username...", text: $searchText)
-                    .foregroundColor(.black)
+                    .foregroundColor(DesignSystem.inkMuted)
+                TextField(
+                    "Search by username",
+                    text: $searchText,
+                    prompt: Text("Search by username").foregroundStyle(DesignSystem.ink.opacity(0.34))
+                )
+                    .font(DesignSystem.bodyFont(16))
+                    .foregroundStyle(DesignSystem.ink)
+                    .tint(DesignSystem.accentTeal)
+                    .textInputAutocapitalization(.never)
+                    .autocorrectionDisabled()
                     .onChange(of: searchText) { _, newValue in
                         performSearch(query: newValue)
                     }
             }
-            .padding()
-            .background(Color.black.opacity(0.1))
-            .cornerRadius(16)
+            .padding(.horizontal, 16)
+            .frame(height: 54)
+            .background(DesignSystem.surface)
+            .clipShape(RoundedRectangle(cornerRadius: 16, style: .continuous))
+            .overlay(RoundedRectangle(cornerRadius: 16).stroke(DesignSystem.hairline, lineWidth: 1))
             .padding(.horizontal, 24)
 
             // Results List
@@ -107,8 +117,8 @@ struct CollaborativeSearchSheetView: View {
 
                                 VStack(alignment: .leading) {
                                     Text(profile.username ?? "Unknown")
-                                        .font(.system(size: 16, weight: .semibold, design: .rounded))
-                                        .foregroundColor(.black)
+                                        .font(DesignSystem.titleFont(16))
+                                        .foregroundColor(DesignSystem.ink)
                                 }
 
                                 Spacer()

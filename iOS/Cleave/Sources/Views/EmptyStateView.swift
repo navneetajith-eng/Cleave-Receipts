@@ -24,11 +24,11 @@ struct EmptyStateView: View {
 
             VStack(spacing: 12) {
                 Text(title)
-                    .font(.system(size: 24, weight: .bold, design: .rounded))
+                    .font(DesignSystem.titleFont(22))
                     .foregroundColor(.black.opacity(0.85))
 
                 Text(message)
-                    .font(.system(size: 16, weight: .medium, design: .rounded))
+                    .font(DesignSystem.bodyFont(15))
                     .foregroundColor(.black.opacity(0.5))
                     .multilineTextAlignment(.center)
                     .padding(.horizontal, 40)

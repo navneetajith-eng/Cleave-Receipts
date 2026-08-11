@@ -8,6 +8,9 @@ struct ProfileSheetView: View {
     @State private var profile: Profile?
     @State private var friends: [Profile] = []
     @State private var username = ""
+    @State private var paymentRegion = RegionManager.shared.currentRegion
+    @State private var venmoUsername = PaymentPreferences.venmoUsername
+    @State private var upiID = PaymentPreferences.upiID
     @State private var selectedPhoto: PhotosPickerItem?
     @State private var avatarImage: UIImage?
     @State private var isSaving = false
@@ -27,7 +30,14 @@ struct ProfileSheetView: View {
                                 .sectionLabel()
 
                             HStack(spacing: 12) {
-                                TextField("Username", text: $username)
+                                TextField(
+                                    "Username",
+                                    text: $username,
+                                    prompt: Text("Username").foregroundStyle(DesignSystem.ink.opacity(0.34))
+                                )
+                                    .font(DesignSystem.bodyFont(16))
+                                    .foregroundStyle(DesignSystem.ink)
+                                    .tint(DesignSystem.accentTeal)
                                     .textInputAutocapitalization(.never)
                                     .autocorrectionDisabled()
                                     .padding(14)
@@ -46,6 +56,8 @@ struct ProfileSheetView: View {
                                 .disabled(isSaving || username.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty)
                             }
                         }
+
+                        paymentDetailsSection
 
                         VStack(alignment: .leading, spacing: 12) {
                             HStack {
@@ -95,6 +107,7 @@ struct ProfileSheetView: View {
                 }
             }
         }
+        .preferredColorScheme(.light)
         .task { await loadProfile() }
         .onChange(of: selectedPhoto) { _, item in
             guard let item else { return }
@@ -141,6 +154,21 @@ struct ProfileSheetView: View {
             profile = newProfile
             friends = newFriends
             username = newProfile.username ?? ""
+            if let regionCode = newProfile.regionCode,
+               let remoteRegion = AppRegion(rawValue: regionCode) {
+                PaymentPreferences.hydrate(
+                    region: remoteRegion,
+                    venmo: newProfile.venmoUsername,
+                    upi: newProfile.upiId
+                )
+                paymentRegion = remoteRegion
+                venmoUsername = newProfile.venmoUsername ?? ""
+                upiID = newProfile.upiId ?? ""
+            } else {
+                paymentRegion = RegionManager.shared.currentRegion
+                venmoUsername = PaymentPreferences.venmoUsername
+                upiID = PaymentPreferences.upiID
+            }
         } catch {
             ErrorManager.shared.showError(error.localizedDescription)
         }
@@ -168,6 +196,87 @@ struct ProfileSheetView: View {
         do {
             profile = try await CleaveAPI.shared.updateProfileAvatar(image: image)
             avatarImage = image
+            HapticsManager.shared.playNotification(type: .success)
+        } catch {
+            ErrorManager.shared.showError(error.localizedDescription)
+        }
+    }
+
+    private var paymentDetailsSection: some View {
+        VStack(alignment: .leading, spacing: 12) {
+            HStack {
+                Text("Get paid")
+                    .sectionLabel()
+                Spacer()
+                Text("\(paymentRegion.flag) \(paymentRegion.currency.rawValue)")
+                    .font(.caption.bold())
+                    .foregroundColor(.black.opacity(0.45))
+            }
+
+            VStack(alignment: .leading, spacing: 12) {
+                Label(paymentRegion.settlementMethod.displayName, systemImage: paymentRegion.settlementMethod.iconName)
+                    .font(.system(size: 16, weight: .bold, design: .rounded))
+                    .foregroundStyle(DesignSystem.accentNavy)
+
+                switch paymentRegion {
+                case .unitedStates:
+                    TextField(
+                        "Venmo username",
+                        text: $venmoUsername,
+                        prompt: Text("Venmo username").foregroundStyle(DesignSystem.ink.opacity(0.34))
+                    )
+                        .textInputAutocapitalization(.never)
+                        .autocorrectionDisabled()
+                        .paymentProfileField()
+                case .india:
+                    TextField(
+                        "UPI ID (name@bank)",
+                        text: $upiID,
+                        prompt: Text("UPI ID (name@bank)").foregroundStyle(DesignSystem.ink.opacity(0.34))
+                    )
+                        .textInputAutocapitalization(.never)
+                        .autocorrectionDisabled()
+                        .keyboardType(.emailAddress)
+                        .paymentProfileField()
+                case .unitedArabEmirates:
+                    Text("Aani needs no payment details. Cleave opens its official App Store page when you settle.")
+                        .font(.system(size: 14, weight: .medium, design: .rounded))
+                        .foregroundStyle(.black.opacity(0.55))
+                        .lineSpacing(3)
+                }
+
+                Button {
+                    Task { await savePaymentDetails() }
+                } label: {
+                    Text("Save payment details")
+                        .font(.system(size: 15, weight: .bold, design: .rounded))
+                        .foregroundStyle(.white)
+                        .frame(maxWidth: .infinity)
+                        .frame(height: 48)
+                        .background(DesignSystem.accentNavy, in: RoundedRectangle(cornerRadius: 14, style: .continuous))
+                }
+                .disabled(isSaving || !PaymentPreferences.isComplete(for: paymentRegion, venmo: venmoUsername, upi: upiID))
+                .opacity(PaymentPreferences.isComplete(for: paymentRegion, venmo: venmoUsername, upi: upiID) ? 1 : 0.45)
+            }
+            .padding(16)
+            .background(.white)
+            .clipShape(RoundedRectangle(cornerRadius: 16, style: .continuous))
+        }
+    }
+
+    private func savePaymentDetails() async {
+        guard !isSaving,
+              PaymentPreferences.isComplete(for: paymentRegion, venmo: venmoUsername, upi: upiID) else { return }
+        isSaving = true
+        defer { isSaving = false }
+        do {
+            profile = try await CleaveAPI.shared.updatePaymentDetails(
+                region: paymentRegion,
+                venmoUsername: venmoUsername,
+                upiID: upiID
+            )
+            PaymentPreferences.save(region: paymentRegion, venmo: venmoUsername, upi: upiID)
+            PaymentPreferences.markSynced()
             HapticsManager.shared.playNotification(type: .success)
         } catch {
             ErrorManager.shared.showError(error.localizedDescription)
@@ -208,5 +317,14 @@ private extension View {
     func sectionLabel() -> some View {
         font(.system(size: 15, weight: .bold, design: .rounded))
             .foregroundColor(.black.opacity(0.5))
+    }
+
+    func paymentProfileField() -> some View {
+        font(DesignSystem.bodyFont(16))
+            .foregroundStyle(DesignSystem.ink)
+            .tint(DesignSystem.accentTeal)
+            .padding(14)
+            .background(DesignSystem.canvasBeige.opacity(0.55))
+            .clipShape(RoundedRectangle(cornerRadius: 12, style: .continuous))
     }
 }

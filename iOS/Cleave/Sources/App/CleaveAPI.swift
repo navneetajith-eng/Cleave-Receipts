@@ -1,6 +1,10 @@
 import Foundation
 import UIKit
 
+private extension String {
+    var nilIfEmpty: String? { isEmpty ? nil : self }
+}
+
 final class CleaveAPI {
     static let shared = CleaveAPI()
 
@@ -38,6 +42,11 @@ final class CleaveAPI {
     private struct MemberPayload: Encodable { let userId: String }
     private struct ProfilePayload: Encodable { let username: String; let email: String }
     private struct ProfileUpdatePayload: Encodable { let username: String }
+    private struct PaymentDetailsPayload: Encodable {
+        let regionCode: String
+        let venmoUsername: String?
+        let upiId: String?
+    }
     private struct ExperiencePayload: Encodable { let rating: Int }
     private struct AssignmentPayload: Encodable { let userIds: [String] }
     private struct AssignmentBatchPayload: Encodable {
@@ -50,10 +59,15 @@ final class CleaveAPI {
     private struct ManualReceiptPayload: Encodable {
         struct Item: Encodable { let name: String; let price: Double }
         let title: String
+        let currencyCode: String
         let taxAmount: Double
         let tipAmount: Double
         let discountAmount: Double
         let items: [Item]
+    }
+    private struct SettlementPayload: Encodable {
+        let receiptId: String
+        let toUserId: String
     }
     private struct ReceiptUpdatePayload: Encodable {
         struct Item: Encodable {
@@ -71,6 +85,9 @@ final class CleaveAPI {
         struct MemberResponse: Decodable {
             let id: UUID
             let username: String
+            let regionCode: String?
+            let venmoUsername: String?
+            let upiId: String?
         }
         let id: UUID
         let name: String
@@ -82,7 +99,15 @@ final class CleaveAPI {
             GroupModel(
                 id: id,
                 name: name,
-                members: members.map { GroupMemberModel(id: $0.id, username: $0.username) },
+                members: members.map {
+                    GroupMemberModel(
+                        id: $0.id,
+                        username: $0.username,
+                        regionCode: $0.regionCode,
+                        venmoUsername: $0.venmoUsername,
+                        upiId: $0.upiId
+                    )
+                },
                 isCollaborative: isCollaborative,
                 createdBy: createdBy
             )
@@ -153,6 +178,22 @@ final class CleaveAPI {
         )
     }
 
+    func updatePaymentDetails(
+        region: AppRegion,
+        venmoUsername: String,
+        upiID: String
+    ) async throws -> Profile {
+        try await send(
+            path: "profiles/me/payment-details",
+            method: "PATCH",
+            body: PaymentDetailsPayload(
+                regionCode: region.rawValue,
+                venmoUsername: PaymentPreferences.normalizedVenmo(venmoUsername).nilIfEmpty,
+                upiId: PaymentPreferences.normalizedUPI(upiID).nilIfEmpty
+            )
+        )
+    }
+
     func updateProfileAvatar(image: UIImage) async throws -> Profile {
         guard let imageData = image.jpegData(compressionQuality: 0.82) else {
             throw APIError.invalidResponse
@@ -197,10 +238,12 @@ final class CleaveAPI {
         items: [ReceiptItem],
         tax: Double,
         tip: Double,
-        discount: Double
+        discount: Double,
+        currency: Currency
     ) async throws -> RemoteReceipt {
         let payload = ManualReceiptPayload(
             title: title,
+            currencyCode: currency.rawValue,
             taxAmount: tax,
             tipAmount: tip,
             discountAmount: discount,
@@ -213,12 +256,16 @@ final class CleaveAPI {
         )
     }
 
-    func uploadReceiptImage(image: UIImage, groupID: UUID) async throws -> RemoteReceipt {
+    func uploadReceiptImage(
+        image: UIImage,
+        groupID: UUID,
+        currency: Currency
+    ) async throws -> RemoteReceipt {
         guard let imageData = image.jpegData(compressionQuality: 0.82) else {
             throw APIError.invalidResponse
         }
         return try await upload(
-            path: "receipts?group_id=\(groupID.uuidString)",
+            path: "receipts?group_id=\(groupID.uuidString)&currency_code=\(currency.rawValue)",
             data: imageData,
             filename: "receipt.jpg"
         )
@@ -305,6 +352,28 @@ final class CleaveAPI {
 
     func fetchBalances(receiptID: String) async throws -> [RemoteBalance] {
         try await send(path: "receipts/\(receiptID)/balances")
+    }
+
+    func initiateSettlement(receiptID: String, recipientID: UUID) async throws -> RemoteSettlement {
+        try await send(
+            path: "settlements",
+            method: "POST",
+            body: SettlementPayload(
+                receiptId: receiptID,
+                toUserId: recipientID.uuidString
+            )
+        )
+    }
+
+    func confirmSettlement(id: UUID) async throws -> RemoteSettlement {
+        let body = Data("{}".utf8)
+        let data = try await sendData(
+            path: "settlements/\(id.uuidString)/confirm",
+            method: "PATCH",
+            body: body,
+            contentType: "application/json"
+        )
+        return try decode(RemoteSettlement.self, from: data)
     }
 
     private struct ReceiptExperienceResponse: Decodable {

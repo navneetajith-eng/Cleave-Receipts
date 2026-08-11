@@ -1,7 +1,11 @@
 from datetime import datetime
-from typing import List, Optional
+import re
+from typing import List, Literal, Optional
 
-from pydantic import BaseModel, ConfigDict, Field
+from pydantic import BaseModel, ConfigDict, Field, field_validator, model_validator
+
+
+CurrencyCode = Literal["USD", "INR", "AED"]
 
 
 class ProfileBase(BaseModel):
@@ -25,9 +29,54 @@ class Profile(ProfileBase):
     created_at: datetime
 
 
+class PrivateProfile(Profile):
+    region_code: Optional[Literal["US", "IN", "AE"]] = None
+    venmo_username: Optional[str] = None
+    upi_id: Optional[str] = None
+
+
+class PaymentDetailsUpdate(BaseModel):
+    region_code: Literal["US", "IN", "AE"]
+    venmo_username: Optional[str] = Field(default=None, max_length=64)
+    upi_id: Optional[str] = Field(default=None, max_length=255)
+
+    @field_validator("venmo_username")
+    @classmethod
+    def validate_venmo_username(cls, value: Optional[str]) -> Optional[str]:
+        if value is None:
+            return None
+        normalized = value.strip().removeprefix("@").strip()
+        if not normalized:
+            return None
+        if not re.fullmatch(r"[A-Za-z0-9_-]{2,64}", normalized):
+            raise ValueError("Enter a valid Venmo username")
+        return normalized
+
+    @field_validator("upi_id")
+    @classmethod
+    def validate_upi_id(cls, value: Optional[str]) -> Optional[str]:
+        if value is None:
+            return None
+        normalized = value.strip().lower()
+        if not normalized:
+            return None
+        if not re.fullmatch(r"[A-Za-z0-9._-]{2,191}@[A-Za-z][A-Za-z0-9.-]{1,62}", normalized):
+            raise ValueError("Enter a valid UPI ID")
+        return normalized
+
+    def validate_required_detail(self) -> None:
+        if self.region_code == "US" and not self.venmo_username:
+            raise ValueError("A Venmo username is required for the United States")
+        if self.region_code == "IN" and not self.upi_id:
+            raise ValueError("A UPI ID is required for India")
+
+
 class Member(BaseModel):
     id: str
     username: str
+    region_code: Optional[Literal["US", "IN", "AE"]] = None
+    venmo_username: Optional[str] = None
+    upi_id: Optional[str] = None
 
 
 class GroupCreate(BaseModel):
@@ -55,7 +104,7 @@ class Group(BaseModel):
 
 class ReceiptItemCreate(BaseModel):
     name: str = Field(min_length=1, max_length=200)
-    price: float = Field(ge=0, le=1_000_000)
+    price: float = Field(gt=0, le=1_000_000)
 
 
 class ReceiptItemUpdate(ReceiptItemCreate):
@@ -64,10 +113,21 @@ class ReceiptItemUpdate(ReceiptItemCreate):
 
 class ManualReceiptCreate(BaseModel):
     title: str = Field(min_length=1, max_length=120)
+    currency_code: CurrencyCode
     tax_amount: float = Field(default=0.0, ge=0, le=1_000_000)
     tip_amount: float = Field(default=0.0, ge=0, le=1_000_000)
     discount_amount: float = Field(default=0.0, ge=0, le=1_000_000)
     items: List[ReceiptItemCreate] = Field(min_length=1, max_length=250)
+
+    @model_validator(mode="after")
+    def validate_total(self):
+        _validate_receipt_total(
+            self.items,
+            self.tax_amount,
+            self.tip_amount,
+            self.discount_amount,
+        )
+        return self
 
 
 class ReceiptUpdate(BaseModel):
@@ -76,6 +136,28 @@ class ReceiptUpdate(BaseModel):
     tip_amount: float = Field(default=0.0, ge=0, le=1_000_000)
     discount_amount: float = Field(default=0.0, ge=0, le=1_000_000)
     items: List[ReceiptItemUpdate] = Field(min_length=1, max_length=250)
+
+    @model_validator(mode="after")
+    def validate_total(self):
+        _validate_receipt_total(
+            self.items,
+            self.tax_amount,
+            self.tip_amount,
+            self.discount_amount,
+        )
+        return self
+
+
+def _validate_receipt_total(items, tax_amount: float, tip_amount: float, discount_amount: float) -> None:
+    from decimal import Decimal
+
+    gross = sum((Decimal(str(item.price)) for item in items), Decimal("0"))
+    gross += Decimal(str(tax_amount)) + Decimal(str(tip_amount))
+    total = gross - Decimal(str(discount_amount))
+    if total <= 0:
+        raise ValueError("Receipt total must be greater than zero")
+    if total > Decimal("1000000"):
+        raise ValueError("Receipt total cannot exceed 1,000,000")
 
 
 class ReceiptItem(BaseModel):
@@ -104,6 +186,7 @@ class Receipt(BaseModel):
     group_id: str
     title: str
     admin_id: str
+    currency_code: CurrencyCode
     tax_amount: float = 0.0
     tip_amount: float = 0.0
     discount_amount: float = 0.0
@@ -115,7 +198,7 @@ class Receipt(BaseModel):
 
 class LineItemBase(BaseModel):
     description: str = Field(min_length=1, max_length=200)
-    price: float = Field(ge=0, le=1_000_000)
+    price: float = Field(gt=0, le=1_000_000)
 
 
 class ParsedReceipt(BaseModel):
@@ -123,7 +206,7 @@ class ParsedReceipt(BaseModel):
     tax: float = Field(ge=0, le=1_000_000)
     tip: float = Field(ge=0, le=1_000_000)
     discount: float = Field(ge=0, le=1_000_000)
-    total: float = Field(ge=0, le=1_000_000)
+    total: float = Field(gt=0, le=1_000_000)
     line_items: List[LineItemBase]
 
 
@@ -164,16 +247,21 @@ class Balance(BaseModel):
 
 class SettlementCreate(BaseModel):
     receipt_id: str
-    from_user_id: str
     to_user_id: str
-    amount: float = Field(gt=0, le=1_000_000)
 
 
-class Settlement(SettlementCreate):
+class Settlement(BaseModel):
     model_config = ConfigDict(from_attributes=True)
 
     id: str
-    settled_at: datetime
+    receipt_id: str
+    from_user_id: str
+    to_user_id: str
+    amount: float
+    currency_code: CurrencyCode
+    status: Literal["initiated", "confirmed", "cancelled"]
+    initiated_at: datetime
+    confirmed_at: Optional[datetime] = None
 
 
 class InboxItem(BaseModel):
