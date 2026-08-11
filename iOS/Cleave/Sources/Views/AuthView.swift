@@ -55,6 +55,7 @@ struct AuthView: View {
     @State private var isSignUp = false
     @State private var isLoading = false
     @State private var errorMessage: String? = nil
+    @State private var showingPasswordReset = false
 
     var body: some View {
         ZStack {
@@ -120,6 +121,17 @@ struct AuthView: View {
                         )
                 }
                 .padding(.horizontal, 30)
+
+                if !isSignUp {
+                    Button("Forgot password?") {
+                        showingPasswordReset = true
+                    }
+                    .font(.system(size: 14, weight: .semibold, design: .rounded))
+                    .foregroundColor(DesignSystem.accentNavy)
+                    .frame(maxWidth: .infinity, alignment: .trailing)
+                    .padding(.horizontal, 30)
+                    .accessibilityHint("Sends a secure password recovery link to your email")
+                }
 
                 if let error = errorMessage {
                     Text(error)
@@ -209,6 +221,9 @@ struct AuthView: View {
                 .accessibilityLabel("Close")
             }
         }
+        .sheet(isPresented: $showingPasswordReset) {
+            PasswordResetRequestView(initialEmail: email)
+        }
     }
 
     @MainActor
@@ -271,5 +286,222 @@ struct AuthView: View {
             username: suggestedUsername,
             email: email
         )
+    }
+}
+
+struct PasswordResetRequestView: View {
+    @Environment(\.dismiss) private var dismiss
+    @ObservedObject private var supabaseManager = SupabaseManager.shared
+
+    @State private var email: String
+    @State private var isLoading = false
+    @State private var didSend = false
+    @State private var errorMessage: String?
+
+    init(initialEmail: String) {
+        _email = State(initialValue: initialEmail)
+    }
+
+    var body: some View {
+        NavigationStack {
+            ZStack {
+                DesignSystem.canvasBeige.ignoresSafeArea()
+
+                VStack(alignment: .leading, spacing: 24) {
+                    Image(systemName: didSend ? "envelope.badge.fill" : "lock.rotation")
+                        .font(.system(size: 46, weight: .semibold))
+                        .foregroundColor(DesignSystem.accentNavy)
+
+                    VStack(alignment: .leading, spacing: 10) {
+                        Text(didSend ? "Check your email" : "Reset your password")
+                            .font(.system(size: 32, weight: .black, design: .rounded))
+                            .foregroundColor(.black.opacity(0.9))
+
+                        Text(didSend
+                             ? "If an account exists for that address, we sent a secure link. Open it on this iPhone to choose a new password."
+                             : "Enter the email address for your Cleave account. We’ll send a secure recovery link.")
+                            .font(.system(size: 16, weight: .medium, design: .rounded))
+                            .foregroundColor(.black.opacity(0.62))
+                            .lineSpacing(4)
+                    }
+
+                    if didSend {
+                        Button("Done") { dismiss() }
+                            .buttonStyle(CleavePrimaryButtonStyle())
+                    } else {
+                        TextField("Email", text: $email)
+                            .textContentType(.emailAddress)
+                            .keyboardType(.emailAddress)
+                            .textInputAutocapitalization(.never)
+                            .autocorrectionDisabled()
+                            .font(.system(size: 17))
+                            .foregroundColor(.black)
+                            .padding()
+                            .background(Color.white.opacity(0.8))
+                            .clipShape(RoundedRectangle(cornerRadius: 16, style: .continuous))
+
+                        if let errorMessage {
+                            Text(errorMessage)
+                                .font(.footnote)
+                                .foregroundColor(.red)
+                                .accessibilityLabel("Error: \(errorMessage)")
+                        }
+
+                        Button {
+                            Task { await sendRecoveryEmail() }
+                        } label: {
+                            Group {
+                                if isLoading {
+                                    ProgressView().tint(.white)
+                                } else {
+                                    Text("Send Recovery Link")
+                                }
+                            }
+                        }
+                        .buttonStyle(CleavePrimaryButtonStyle())
+                        .disabled(isLoading || email.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty)
+                    }
+
+                    Spacer()
+                }
+                .padding(30)
+            }
+            .toolbar {
+                ToolbarItem(placement: .cancellationAction) {
+                    Button("Close") { dismiss() }
+                }
+            }
+        }
+        .presentationDetents([.medium, .large])
+    }
+
+    @MainActor
+    private func sendRecoveryEmail() async {
+        isLoading = true
+        errorMessage = nil
+        do {
+            try await supabaseManager.requestPasswordReset(email: email)
+            didSend = true
+        } catch {
+            errorMessage = error.localizedDescription
+        }
+        isLoading = false
+    }
+}
+
+struct PasswordUpdateView: View {
+    @ObservedObject private var supabaseManager = SupabaseManager.shared
+
+    @State private var password = ""
+    @State private var confirmation = ""
+    @State private var isLoading = false
+    @State private var didUpdate = false
+    @State private var errorMessage: String?
+
+    var body: some View {
+        ZStack {
+            DesignSystem.canvasBeige.ignoresSafeArea()
+
+            ScrollView {
+                VStack(alignment: .leading, spacing: 24) {
+                    Image(systemName: didUpdate ? "checkmark.shield.fill" : "key.fill")
+                        .font(.system(size: 50, weight: .semibold))
+                        .foregroundColor(DesignSystem.accentNavy)
+                        .padding(.top, 42)
+
+                    VStack(alignment: .leading, spacing: 10) {
+                        Text(didUpdate ? "Password updated" : "Choose a new password")
+                            .font(.system(size: 34, weight: .black, design: .rounded))
+                            .foregroundColor(.black.opacity(0.9))
+
+                        Text(didUpdate
+                             ? "Your new password is ready. You can continue securely into Cleave."
+                             : "Use at least eight characters, including a letter and a number.")
+                            .font(.system(size: 16, weight: .medium, design: .rounded))
+                            .foregroundColor(.black.opacity(0.62))
+                            .lineSpacing(4)
+                    }
+
+                    if didUpdate {
+                        Button("Continue to Cleave") {
+                            supabaseManager.completePasswordRecovery()
+                        }
+                        .buttonStyle(CleavePrimaryButtonStyle())
+                    } else {
+                        VStack(spacing: 14) {
+                            SecureField("New password", text: $password)
+                                .textContentType(.newPassword)
+                            SecureField("Confirm new password", text: $confirmation)
+                                .textContentType(.newPassword)
+                        }
+                        .font(.system(size: 17))
+                        .foregroundColor(.black)
+                        .padding()
+                        .background(Color.white.opacity(0.8))
+                        .clipShape(RoundedRectangle(cornerRadius: 16, style: .continuous))
+
+                        if let errorMessage {
+                            Text(errorMessage)
+                                .font(.footnote)
+                                .foregroundColor(.red)
+                                .accessibilityLabel("Error: \(errorMessage)")
+                        }
+
+                        Button {
+                            Task { await updatePassword() }
+                        } label: {
+                            Group {
+                                if isLoading {
+                                    ProgressView().tint(.white)
+                                } else {
+                                    Text("Update Password")
+                                }
+                            }
+                        }
+                        .buttonStyle(CleavePrimaryButtonStyle())
+                        .disabled(isLoading || password.isEmpty || confirmation.isEmpty)
+
+                        Button("Cancel and Sign Out") {
+                            Task { await supabaseManager.cancelPasswordRecovery() }
+                        }
+                        .font(.system(size: 14, weight: .semibold, design: .rounded))
+                        .foregroundColor(.black.opacity(0.6))
+                        .frame(maxWidth: .infinity)
+                    }
+                }
+                .padding(30)
+            }
+        }
+        .interactiveDismissDisabled()
+    }
+
+    @MainActor
+    private func updatePassword() async {
+        errorMessage = nil
+        guard password == confirmation else {
+            errorMessage = "The passwords do not match."
+            return
+        }
+
+        isLoading = true
+        do {
+            try await supabaseManager.updatePassword(password)
+            didUpdate = true
+        } catch {
+            errorMessage = error.localizedDescription
+        }
+        isLoading = false
+    }
+}
+
+private struct CleavePrimaryButtonStyle: ButtonStyle {
+    func makeBody(configuration: Configuration) -> some View {
+        configuration.label
+            .font(.system(size: 17, weight: .bold, design: .rounded))
+            .foregroundColor(.white)
+            .frame(maxWidth: .infinity)
+            .padding(.vertical, 16)
+            .background(DesignSystem.accentNavy.opacity(configuration.isPressed ? 0.78 : 1))
+            .clipShape(RoundedRectangle(cornerRadius: 16, style: .continuous))
     }
 }

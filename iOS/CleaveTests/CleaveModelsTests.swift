@@ -103,6 +103,19 @@ final class CleaveModelsTests: XCTestCase {
         XCTAssertNil(ProductMetrics.percentile(0.5, values: []))
     }
 
+    func testPasswordPolicyRequiresLengthLetterAndNumber() {
+        XCTAssertNotNil(PasswordPolicy.validationMessage(for: "short1"))
+        XCTAssertNotNil(PasswordPolicy.validationMessage(for: "onlyletters"))
+        XCTAssertNotNil(PasswordPolicy.validationMessage(for: "12345678"))
+        XCTAssertNil(PasswordPolicy.validationMessage(for: "cleave2026"))
+    }
+
+    func testOnlyCleaveAuthCallbackIsAccepted() {
+        XCTAssertTrue(SupabaseManager.isAuthCallback(URL(string: "cleave://auth-callback?code=abc")!))
+        XCTAssertFalse(SupabaseManager.isAuthCallback(URL(string: "cleave://unexpected?code=abc")!))
+        XCTAssertFalse(SupabaseManager.isAuthCallback(URL(string: "https://example.com/auth-callback")!))
+    }
+
     @MainActor
     func testDeletedAccountClearsAccountScopedCache() {
         let userID = UUID()
