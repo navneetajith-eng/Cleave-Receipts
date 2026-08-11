@@ -20,6 +20,7 @@ struct BespokeHomeView: View {
     @State private var showingSettingsSheet = false
     @State private var showingProfileSheet = false
     @State private var showingInboxSheet = false
+    @State private var showingDemoControls = false
     @State private var inboxItems: [InboxItem] = []
 
     // Some vibrant colors to cycle through for groups
@@ -33,8 +34,20 @@ struct BespokeHomeView: View {
 
                 headerView
 
+                if DemoMode.isEnabled {
+                    Label("DEMO DATA · LOCAL ONLY", systemImage: "flask.fill")
+                        .font(.custom("AvenirNext-Heavy", size: 11))
+                        .tracking(1.2)
+                        .foregroundColor(DesignSystem.accentOrange)
+                        .padding(.horizontal, 12)
+                        .padding(.vertical, 7)
+                        .background(DesignSystem.accentOrange.opacity(0.12))
+                        .clipShape(Capsule())
+                        .padding(.horizontal, 20)
+                }
+
                 Text("Select a group to split receipts.")
-                    .font(.subheadline)
+                    .font(DesignSystem.bodyFont(14))
                     .foregroundColor(Color.black.opacity(0.5))
                     .padding(.horizontal, 20)
                     .padding(.bottom, 10)
@@ -149,7 +162,7 @@ struct BespokeHomeView: View {
                                     let unreadCount = inboxItems.filter { !$0.isRead }.count
                                     if unreadCount > 0 {
                                         Text(unreadCount > 99 ? "99+" : "\(unreadCount)")
-                                            .font(.system(size: 10, weight: .black, design: .rounded))
+                                            .font(DesignSystem.labelFont(10))
                                             .foregroundColor(.white)
                                             .padding(.horizontal, 6)
                                             .frame(minWidth: 20, minHeight: 20)
@@ -234,7 +247,8 @@ struct BespokeHomeView: View {
         .sheet(isPresented: $showingNewGroupSheet) {
             NewGroupSheetView(isPresented: $showingNewGroupSheet)
                 .presentationDragIndicator(.hidden)
-                .presentationDetents([.fraction(0.45), .large])
+                .presentationDetents([.fraction(0.72), .large])
+                .presentationCornerRadius(34)
         }
         .sheet(isPresented: $showingSettingsSheet) {
             SettingsSheetView(isPresented: $showingSettingsSheet)
@@ -245,6 +259,12 @@ struct BespokeHomeView: View {
             ProfileSheetView(isPresented: $showingProfileSheet)
                 .presentationDragIndicator(.visible)
                 .presentationDetents([.large])
+        }
+        .sheet(isPresented: $showingDemoControls) {
+            DemoControlSheet(isPresented: $showingDemoControls)
+                .presentationDragIndicator(.visible)
+                .presentationDetents([.height(470)])
+                .presentationCornerRadius(34)
         }
         .sheet(isPresented: $showingInboxSheet, onDismiss: {
             Task { await refreshInbox() }
@@ -317,9 +337,21 @@ struct BespokeHomeView: View {
                 // Profile Icon
                 Button(action: {
                     HapticsManager.shared.playImpact(style: .light)
-                    showingProfileSheet = true
+                    if DemoMode.isEnabled {
+                        showingDemoControls = true
+                    } else {
+                        showingProfileSheet = true
+                    }
                 }) {
-                    if let user = supabaseManager.currentUser {
+                    if DemoMode.isEnabled {
+                        Image(systemName: "flask.fill")
+                            .foregroundColor(.white)
+                            .font(.system(size: 18, weight: .bold))
+                            .frame(width: 44, height: 44)
+                            .background(DesignSystem.accentOrange)
+                            .clipShape(Circle())
+                            .shadow(color: Color.black.opacity(0.2), radius: 10, y: 5)
+                    } else if let user = supabaseManager.currentUser {
                         ProfileAvatarView(
                             profileID: user.id,
                             fallbackName: user.email ?? "User",
@@ -335,7 +367,7 @@ struct BespokeHomeView: View {
                             .clipShape(Circle())
                     }
                 }
-                .accessibilityLabel("Profile and friends")
+                .accessibilityLabel(DemoMode.isEnabled ? "Open Demo Lab" : "Profile and friends")
             }
         }
         .padding(.horizontal, 20)
@@ -344,6 +376,10 @@ struct BespokeHomeView: View {
 
     @MainActor
     private func refreshInbox() async {
+        guard !DemoMode.isEnabled else {
+            inboxItems = []
+            return
+        }
         do {
             inboxItems = try await CleaveAPI.shared.fetchInbox()
         } catch {
@@ -355,6 +391,137 @@ struct BespokeHomeView: View {
 
     // Custom Speech Bubble Dropdown
     // notificationDropdown removed
+}
+
+private struct DemoControlSheet: View {
+    @Binding var isPresented: Bool
+    @EnvironmentObject private var store: AppStore
+    @AppStorage(DemoMode.defaultsKey) private var demoModeEnabled = false
+
+    @State private var showingResetConfirmation = false
+    @State private var showingExitConfirmation = false
+
+    private var receiptCount: Int {
+        store.groups.reduce(0) { count, group in
+            count + store.receipts(for: group.id).count
+        }
+    }
+
+    var body: some View {
+        ZStack {
+            DesignSystem.canvasBeige.ignoresSafeArea()
+
+            CleaveReceiptWatermark(color: DesignSystem.accentOrange)
+                .rotationEffect(.degrees(10))
+                .position(x: 380, y: 80)
+                .opacity(0.42)
+
+            VStack(alignment: .leading, spacing: 18) {
+                HStack(alignment: .top, spacing: 16) {
+                    ZStack {
+                        Circle()
+                            .fill(DesignSystem.accentOrange.opacity(0.14))
+                            .frame(width: 68, height: 68)
+                        Circle()
+                            .stroke(DesignSystem.accentOrange.opacity(0.22), lineWidth: 1)
+                            .frame(width: 78, height: 78)
+                        Image(systemName: "flask.fill")
+                            .font(.system(size: 27, weight: .bold))
+                            .foregroundStyle(DesignSystem.accentOrange)
+                    }
+
+                    VStack(alignment: .leading, spacing: 5) {
+                        Text("DEMO LAB")
+                            .font(DesignSystem.labelFont(10))
+                            .tracking(1.8)
+                            .foregroundStyle(DesignSystem.accentOrange)
+                        Text("Try everything")
+                            .font(DesignSystem.displayFont(27))
+                            .foregroundStyle(DesignSystem.ink)
+                        Text("Local data. No real payments.")
+                            .font(DesignSystem.bodyFont(14))
+                            .foregroundStyle(DesignSystem.inkMuted)
+                    }
+                    Spacer()
+                }
+
+                HStack(spacing: 10) {
+                    demoStat(value: "\(store.groups.count)", label: "GROUPS", color: DesignSystem.accentTeal)
+                    demoStat(value: "\(receiptCount)", label: "RECEIPTS", color: DesignSystem.accentOrange)
+                    demoStat(value: "FREE", label: "TO EXPLORE", color: DesignSystem.accentNavy)
+                }
+
+                Button {
+                    showingResetConfirmation = true
+                } label: {
+                    Label("Reset demo data", systemImage: "arrow.counterclockwise")
+                        .font(DesignSystem.titleFont(15))
+                        .foregroundStyle(DesignSystem.ink)
+                        .frame(maxWidth: .infinity)
+                        .frame(height: 52)
+                        .background(DesignSystem.surface)
+                        .clipShape(RoundedRectangle(cornerRadius: 16, style: .continuous))
+                        .overlay(RoundedRectangle(cornerRadius: 16).stroke(DesignSystem.hairline, lineWidth: 1))
+                }
+                .buttonStyle(PressScaleButtonStyle())
+
+                Button {
+                    showingExitConfirmation = true
+                } label: {
+                    Text("Exit demo")
+                        .font(DesignSystem.titleFont(15))
+                        .foregroundStyle(.white)
+                        .frame(maxWidth: .infinity)
+                        .frame(height: 52)
+                        .background(DesignSystem.accentNavy)
+                        .clipShape(RoundedRectangle(cornerRadius: 16, style: .continuous))
+                }
+                .buttonStyle(PressScaleButtonStyle())
+            }
+            .padding(.horizontal, 24)
+            .padding(.top, 24)
+            .padding(.bottom, 20)
+        }
+        .preferredColorScheme(.light)
+        .alert("Reset the demo?", isPresented: $showingResetConfirmation) {
+            Button("Cancel", role: .cancel) { }
+            Button("Reset") {
+                withAnimation(.spring(response: 0.45, dampingFraction: 0.82)) {
+                    store.loadDemoData()
+                }
+                HapticsManager.shared.playNotification(type: .success)
+                isPresented = false
+            }
+        } message: {
+            Text("This replaces your demo changes with Cleave's original sample groups and receipts.")
+        }
+        .alert("Exit demo mode?", isPresented: $showingExitConfirmation) {
+            Button("Keep exploring", role: .cancel) { }
+            Button("Exit Demo", role: .destructive) {
+                store.clearForSignOut()
+                demoModeEnabled = false
+                isPresented = false
+            }
+        } message: {
+            Text("You’ll return to sign in. Demo data never affects a real account.")
+        }
+    }
+
+    private func demoStat(value: String, label: String, color: Color) -> some View {
+        VStack(alignment: .leading, spacing: 4) {
+            Text(value)
+                .font(DesignSystem.displayFont(value.count > 4 ? 15 : 22))
+                .foregroundStyle(DesignSystem.ink)
+            Text(label)
+                .font(DesignSystem.labelFont(8))
+                .tracking(0.8)
+                .foregroundStyle(DesignSystem.inkMuted)
+        }
+        .padding(12)
+        .frame(maxWidth: .infinity, minHeight: 70, alignment: .leading)
+        .background(color.opacity(0.1))
+        .clipShape(RoundedRectangle(cornerRadius: 16, style: .continuous))
+    }
 }
 
 struct ReceiptCardShape: Shape {
@@ -414,12 +581,12 @@ struct GroupCard: View {
             HStack(alignment: .top) {
                 VStack(alignment: .leading, spacing: 6) {
                     Text("RECEIPTS")
-                        .font(.system(size: 12, weight: .bold, design: .monospaced))
+                        .font(DesignSystem.labelFont(10))
                         .foregroundColor(textColor.opacity(0.6))
                         .kerning(1.5)
 
                     Text(title)
-                        .font(.system(size: 22, weight: .bold, design: .rounded))
+                        .font(DesignSystem.titleFont(21))
                         .foregroundColor(textColor)
                         .lineLimit(2)
                         .minimumScaleFactor(0.5)
@@ -432,7 +599,7 @@ struct GroupCard: View {
                         .foregroundColor(textColor.opacity(0.5))
                 }
                 Text("\(members)")
-                    .font(.system(size: 14, weight: .bold, design: .monospaced))
+                    .font(DesignSystem.labelFont(13))
                     .foregroundColor(textColor.opacity(0.7))
             }
 
@@ -442,13 +609,13 @@ struct GroupCard: View {
 
             HStack {
                 Text("TOTAL ITEMS")
-                    .font(.system(size: 12, weight: .bold, design: .monospaced))
+                    .font(DesignSystem.labelFont(10))
                     .foregroundColor(textColor.opacity(0.6))
 
                 Spacer()
 
                 Text("--")
-                    .font(.system(size: 14, weight: .bold, design: .monospaced))
+                    .font(DesignSystem.labelFont(13))
                     .foregroundColor(textColor)
             }
 

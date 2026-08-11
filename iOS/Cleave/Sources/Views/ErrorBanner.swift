@@ -14,7 +14,7 @@ struct ErrorBanner: View {
                     .font(.system(size: 20))
 
                 Text(message)
-                    .font(.system(.subheadline, design: .rounded))
+                    .font(DesignSystem.bodyFont(14))
                     .foregroundColor(.white)
                     .multilineTextAlignment(.leading)
 

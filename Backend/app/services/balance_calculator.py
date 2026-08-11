@@ -76,6 +76,19 @@ def calculate_balances(db: Session, receipt_id: str) -> list[schemas.Balance]:
     tip = _allocate_cents(_cents(receipt.tip_amount), user_item_cents)
     discount = _allocate_cents(_cents(receipt.discount_amount), user_item_cents)
 
+    confirmed_by_user: dict[str, int] = {}
+    for settlement in (
+        db.query(domain.Settlement)
+        .filter(
+            domain.Settlement.receipt_id == receipt_id,
+            domain.Settlement.status == "confirmed",
+        )
+        .all()
+    ):
+        confirmed_by_user[settlement.from_user_id] = (
+            confirmed_by_user.get(settlement.from_user_id, 0) + _cents(settlement.amount)
+        )
+
     return [
         schemas.Balance(
             user_id=user_id,
@@ -83,9 +96,11 @@ def calculate_balances(db: Session, receipt_id: str) -> list[schemas.Balance]:
             tax_share=_money(tax[user_id]),
             tip_share=_money(tip[user_id]),
             discount_share=_money(discount[user_id]),
-            total_owed=_money(
+            total_owed=_money(max(
+                0,
                 items_total + tax[user_id] + tip[user_id] - discount[user_id]
-            ),
+                - confirmed_by_user.get(user_id, 0),
+            )),
         )
         for user_id, items_total in sorted(user_item_cents.items())
     ]

@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import os
 import uuid
+from datetime import datetime, timezone
 from io import BytesIO
 from typing import List
 
@@ -46,7 +47,13 @@ def _serialize_group(group: domain.Group) -> dict:
         "is_collaborative": group.is_collaborative,
         "created_at": group.created_at,
         "members": [
-            {"id": membership.user.id, "username": membership.user.username}
+            {
+                "id": membership.user.id,
+                "username": membership.user.username,
+                "region_code": membership.user.region_code,
+                "venmo_username": membership.user.venmo_username,
+                "upi_id": membership.user.upi_id,
+            }
             for membership in group.members
             if membership.user is not None
         ],
@@ -61,7 +68,13 @@ def _serialize_group_with_profiles(group: domain.Group, profiles: list[domain.Pr
         "is_collaborative": group.is_collaborative,
         "created_at": group.created_at,
         "members": [
-            {"id": profile.id, "username": profile.username}
+            {
+                "id": profile.id,
+                "username": profile.username,
+                "region_code": profile.region_code,
+                "venmo_username": profile.venmo_username,
+                "upi_id": profile.upi_id,
+            }
             for profile in sorted(profiles, key=lambda value: (value.username.casefold(), value.id))
         ],
     }
@@ -196,7 +209,7 @@ def _account_image_objects(db: Session, user_id: str) -> list[str]:
     return receipt_objects + memory_objects + ([avatar] if avatar else [])
 
 
-@router.post("/profiles/bootstrap", response_model=schemas.Profile)
+@router.post("/profiles/bootstrap", response_model=schemas.PrivateProfile)
 def bootstrap_profile(
     profile: schemas.ProfileBase,
     db: Session = Depends(get_db),
@@ -237,7 +250,7 @@ def bootstrap_profile(
     return created
 
 
-@router.get("/profiles/me", response_model=schemas.Profile)
+@router.get("/profiles/me", response_model=schemas.PrivateProfile)
 def get_my_profile(
     db: Session = Depends(get_db),
     user: AuthenticatedUser = Depends(get_current_user),
@@ -248,7 +261,7 @@ def get_my_profile(
     return profile
 
 
-@router.patch("/profiles/me", response_model=schemas.Profile)
+@router.patch("/profiles/me", response_model=schemas.PrivateProfile)
 def update_my_profile(
     payload: schemas.ProfileUpdate,
     db: Session = Depends(get_db),
@@ -273,7 +286,28 @@ def update_my_profile(
     return profile
 
 
-@router.post("/profiles/me/avatar", response_model=schemas.Profile)
+@router.patch("/profiles/me/payment-details", response_model=schemas.PrivateProfile)
+def update_my_payment_details(
+    payload: schemas.PaymentDetailsUpdate,
+    db: Session = Depends(get_db),
+    user: AuthenticatedUser = Depends(get_current_user),
+):
+    profile = db.query(domain.Profile).filter(domain.Profile.id == user.id).first()
+    if profile is None:
+        raise HTTPException(status_code=404, detail="Profile not found")
+    try:
+        payload.validate_required_detail()
+    except ValueError as error:
+        raise HTTPException(status_code=422, detail=str(error)) from error
+    profile.region_code = payload.region_code
+    profile.venmo_username = payload.venmo_username if payload.region_code == "US" else None
+    profile.upi_id = payload.upi_id if payload.region_code == "IN" else None
+    db.commit()
+    db.refresh(profile)
+    return profile
+
+
+@router.post("/profiles/me/avatar", response_model=schemas.PrivateProfile)
 async def update_my_avatar(
     file: UploadFile = File(...),
     db: Session = Depends(get_db),
@@ -590,6 +624,7 @@ def _create_receipt(
     group_id: str,
     user_id: str,
     title: str,
+    currency_code: schemas.CurrencyCode,
     tax: float,
     tip: float,
     discount: float,
@@ -601,6 +636,7 @@ def _create_receipt(
         group_id=group_id,
         title=title,
         admin_id=user_id,
+        currency_code=currency_code,
         tax_amount=tax,
         tip_amount=tip,
         discount_amount=discount,
@@ -644,6 +680,7 @@ def create_manual_receipt(
         group_id=group_id,
         user_id=user.id,
         title=payload.title.strip(),
+        currency_code=payload.currency_code,
         tax=payload.tax_amount,
         tip=payload.tip_amount,
         discount=payload.discount_amount,
@@ -683,6 +720,7 @@ def update_receipt(
 async def upload_receipt(
     request: Request,
     group_id: str,
+    currency_code: schemas.CurrencyCode,
     file: UploadFile = File(...),
     db: Session = Depends(get_db),
     user: AuthenticatedUser = Depends(get_current_user),
@@ -717,6 +755,7 @@ async def upload_receipt(
         group_id=group_id,
         user_id=user.id,
         title=parsed.vendor_name,
+        currency_code=currency_code,
         tax=parsed.tax,
         tip=parsed.tip,
         discount=parsed.discount,
@@ -946,21 +985,67 @@ def create_settlement(
     user: AuthenticatedUser = Depends(get_current_user),
 ):
     receipt = _require_receipt_access(db, payload.receipt_id, user)
-    _validate_member_ids(
-        db,
-        receipt.group_id,
-        [payload.from_user_id, payload.to_user_id],
+    if user.id == receipt.admin_id:
+        raise HTTPException(status_code=409, detail="The receipt payer does not owe themselves")
+    if payload.to_user_id != receipt.admin_id:
+        raise HTTPException(status_code=422, detail="Settlement recipient must be the receipt payer")
+    _validate_member_ids(db, receipt.group_id, [user.id, payload.to_user_id])
+    balance = next(
+        (value for value in calculate_balances(db, payload.receipt_id) if value.user_id == user.id),
+        None,
     )
-    if user.id not in {payload.from_user_id, payload.to_user_id}:
-        raise HTTPException(status_code=403, detail="You must be part of the settlement")
+    if balance is None or balance.total_owed <= 0:
+        raise HTTPException(status_code=409, detail="You do not have an outstanding balance")
+    existing = (
+        db.query(domain.Settlement)
+        .filter(
+            domain.Settlement.receipt_id == payload.receipt_id,
+            domain.Settlement.from_user_id == user.id,
+            domain.Settlement.to_user_id == payload.to_user_id,
+            domain.Settlement.status.in_(["initiated", "confirmed"]),
+        )
+        .order_by(domain.Settlement.initiated_at.desc())
+        .first()
+    )
+    if existing is not None:
+        return existing
     settlement = domain.Settlement(
         id=str(uuid.uuid4()),
         receipt_id=payload.receipt_id,
-        from_user_id=payload.from_user_id,
+        from_user_id=user.id,
         to_user_id=payload.to_user_id,
-        amount=payload.amount,
+        amount=balance.total_owed,
+        currency_code=receipt.currency_code,
+        status="initiated",
     )
     db.add(settlement)
+    db.commit()
+    db.refresh(settlement)
+    return settlement
+
+
+@router.patch("/settlements/{settlement_id}/confirm", response_model=schemas.Settlement)
+def confirm_settlement(
+    settlement_id: str,
+    db: Session = Depends(get_db),
+    user: AuthenticatedUser = Depends(get_current_user),
+):
+    settlement = (
+        db.query(domain.Settlement)
+        .filter(domain.Settlement.id == settlement_id)
+        .first()
+    )
+    if settlement is None:
+        raise HTTPException(status_code=404, detail="Settlement not found")
+    _require_receipt_access(db, settlement.receipt_id, user)
+    if settlement.from_user_id != user.id:
+        raise HTTPException(status_code=403, detail="Only the payer can confirm this settlement")
+    if settlement.status == "confirmed":
+        return settlement
+    if settlement.status != "initiated":
+        raise HTTPException(status_code=409, detail="This settlement cannot be confirmed")
+    settlement.status = "confirmed"
+    settlement.confirmed_at = datetime.now(timezone.utc)
     db.commit()
     db.refresh(settlement)
     return settlement

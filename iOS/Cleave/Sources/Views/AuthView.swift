@@ -2,6 +2,8 @@ import SwiftUI
 import AuthenticationServices
 
 struct SupabaseConfigurationRequiredView: View {
+    var onEnterDemo: (() -> Void)? = nil
+
     var body: some View {
         ZStack {
             DesignSystem.canvasBeige.ignoresSafeArea()
@@ -39,6 +41,19 @@ struct SupabaseConfigurationRequiredView: View {
                     .font(.caption)
                     .foregroundColor(.black.opacity(0.5))
                     .multilineTextAlignment(.center)
+
+                #if DEBUG
+                if let onEnterDemo {
+                    Button(action: onEnterDemo) {
+                        Label("Explore with demo data", systemImage: "flask.fill")
+                            .font(.system(size: 17, weight: .semibold, design: .serif))
+                            .foregroundStyle(.white)
+                            .frame(maxWidth: .infinity)
+                            .padding(.vertical, 16)
+                            .background(DesignSystem.accentNavy, in: Capsule())
+                    }
+                }
+                #endif
             }
             .padding(32)
         }
@@ -49,6 +64,7 @@ struct AuthView: View {
     @Environment(\.dismiss) var dismiss
     @ObservedObject private var supabaseManager = SupabaseManager.shared
     var allowsDismiss = true
+    var onEnterDemo: (() -> Void)? = nil
 
     @State private var email = ""
     @State private var password = ""
@@ -96,9 +112,14 @@ struct AuthView: View {
 
                 // Form Fields
                 VStack(spacing: 16) {
-                    TextField("Email", text: $email)
+                    TextField(
+                        "Email",
+                        text: $email,
+                        prompt: Text("Email").foregroundStyle(Color.black.opacity(0.34))
+                    )
                         .font(.system(size: 18))
                         .foregroundColor(.black)
+                        .tint(DesignSystem.accentTeal)
                         .padding()
                         .background(Color.black.opacity(0.05))
                         .cornerRadius(16)
@@ -109,9 +130,14 @@ struct AuthView: View {
                         .autocapitalization(.none)
                         .keyboardType(.emailAddress)
 
-                    SecureField("Password", text: $password)
+                    SecureField(
+                        "Password",
+                        text: $password,
+                        prompt: Text("Password").foregroundStyle(Color.black.opacity(0.34))
+                    )
                         .font(.system(size: 18))
                         .foregroundColor(.black)
+                        .tint(DesignSystem.accentTeal)
                         .padding()
                         .background(Color.black.opacity(0.05))
                         .cornerRadius(16)
@@ -196,6 +222,25 @@ struct AuthView: View {
                 .cornerRadius(16)
                 .padding(.horizontal, 30)
 
+                #if DEBUG
+                if let onEnterDemo {
+                    Button(action: onEnterDemo) {
+                        Label("Explore with demo data", systemImage: "flask.fill")
+                            .font(.system(size: 17, weight: .semibold, design: .serif))
+                            .foregroundStyle(DesignSystem.accentNavy)
+                            .frame(maxWidth: .infinity)
+                            .frame(height: 50)
+                            .background(.white.opacity(0.7), in: RoundedRectangle(cornerRadius: 16, style: .continuous))
+                            .overlay {
+                                RoundedRectangle(cornerRadius: 16, style: .continuous)
+                                    .stroke(DesignSystem.accentNavy.opacity(0.18), lineWidth: 1)
+                            }
+                    }
+                    .padding(.horizontal, 30)
+                    .accessibilityHint("Opens local sample groups without signing in")
+                }
+                #endif
+
                 // Toggle mode
                 Button(action: {
                     withAnimation {
@@ -221,6 +266,7 @@ struct AuthView: View {
                 .accessibilityLabel("Close")
             }
         }
+        .preferredColorScheme(.light)
         .sheet(isPresented: $showingPasswordReset) {
             PasswordResetRequestView(initialEmail: email)
         }
@@ -286,13 +332,38 @@ struct AuthView: View {
             username: suggestedUsername,
             email: email
         )
+        if let profile = try? await CleaveAPI.shared.fetchCurrentProfile(),
+           let regionCode = profile.regionCode,
+           let remoteRegion = AppRegion(rawValue: regionCode) {
+            PaymentPreferences.hydrate(
+                region: remoteRegion,
+                venmo: profile.venmoUsername,
+                upi: profile.upiId
+            )
+            return
+        }
+        guard PaymentPreferences.isComplete(
+            for: RegionManager.shared.currentRegion,
+            venmo: PaymentPreferences.venmoUsername,
+            upi: PaymentPreferences.upiID
+        ) else { return }
+        do {
+            _ = try await CleaveAPI.shared.updatePaymentDetails(
+                region: RegionManager.shared.currentRegion,
+                venmoUsername: PaymentPreferences.venmoUsername,
+                upiID: PaymentPreferences.upiID
+            )
+            PaymentPreferences.markSynced()
+        } catch {
+            // Authentication and receipt splitting remain available. The local
+            // values stay marked for a later retry from Profile.
+            print("Payment preference sync deferred: \(error.localizedDescription)")
+        }
     }
 }
 
 struct PasswordResetRequestView: View {
     @Environment(\.dismiss) private var dismiss
-    @ObservedObject private var supabaseManager = SupabaseManager.shared
-
     @State private var email: String
     @State private var isLoading = false
     @State private var didSend = false
@@ -306,24 +377,21 @@ struct PasswordResetRequestView: View {
         NavigationStack {
             ZStack {
                 DesignSystem.canvasBeige.ignoresSafeArea()
-
                 VStack(alignment: .leading, spacing: 24) {
                     Image(systemName: didSend ? "envelope.badge.fill" : "lock.rotation")
                         .font(.system(size: 46, weight: .semibold))
                         .foregroundColor(DesignSystem.accentNavy)
 
-                    VStack(alignment: .leading, spacing: 10) {
-                        Text(didSend ? "Check your email" : "Reset your password")
-                            .font(.system(size: 32, weight: .black, design: .rounded))
-                            .foregroundColor(.black.opacity(0.9))
+                    Text(didSend ? "Check your email" : "Reset your password")
+                        .font(DesignSystem.displayFont(30))
+                        .foregroundColor(DesignSystem.ink)
 
-                        Text(didSend
-                             ? "If an account exists for that address, we sent a secure link. Open it on this iPhone to choose a new password."
-                             : "Enter the email address for your Cleave account. We’ll send a secure recovery link.")
-                            .font(.system(size: 16, weight: .medium, design: .rounded))
-                            .foregroundColor(.black.opacity(0.62))
-                            .lineSpacing(4)
-                    }
+                    Text(didSend
+                         ? "If an account exists for that address, we sent a secure link. Open it on this iPhone to choose a new password."
+                         : "Enter the email address for your Cleave account. We’ll send a secure recovery link.")
+                        .font(DesignSystem.bodyFont(16))
+                        .foregroundColor(DesignSystem.inkMuted)
+                        .lineSpacing(4)
 
                     if didSend {
                         Button("Done") { dismiss() }
@@ -334,10 +402,10 @@ struct PasswordResetRequestView: View {
                             .keyboardType(.emailAddress)
                             .textInputAutocapitalization(.never)
                             .autocorrectionDisabled()
-                            .font(.system(size: 17))
-                            .foregroundColor(.black)
+                            .font(DesignSystem.bodyFont(17))
+                            .foregroundColor(DesignSystem.ink)
                             .padding()
-                            .background(Color.white.opacity(0.8))
+                            .background(DesignSystem.surface)
                             .clipShape(RoundedRectangle(cornerRadius: 16, style: .continuous))
 
                         if let errorMessage {
@@ -350,18 +418,12 @@ struct PasswordResetRequestView: View {
                         Button {
                             Task { await sendRecoveryEmail() }
                         } label: {
-                            Group {
-                                if isLoading {
-                                    ProgressView().tint(.white)
-                                } else {
-                                    Text("Send Recovery Link")
-                                }
-                            }
+                            if isLoading { ProgressView().tint(.white) }
+                            else { Text("Send Recovery Link") }
                         }
                         .buttonStyle(CleavePrimaryButtonStyle())
                         .disabled(isLoading || email.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty)
                     }
-
                     Spacer()
                 }
                 .padding(30)
@@ -373,6 +435,7 @@ struct PasswordResetRequestView: View {
             }
         }
         .presentationDetents([.medium, .large])
+        .preferredColorScheme(.light)
     }
 
     @MainActor
@@ -380,7 +443,7 @@ struct PasswordResetRequestView: View {
         isLoading = true
         errorMessage = nil
         do {
-            try await supabaseManager.requestPasswordReset(email: email)
+            try await SupabaseManager.shared.requestPasswordReset(email: email)
             didSend = true
         } catch {
             errorMessage = error.localizedDescription
@@ -390,8 +453,6 @@ struct PasswordResetRequestView: View {
 }
 
 struct PasswordUpdateView: View {
-    @ObservedObject private var supabaseManager = SupabaseManager.shared
-
     @State private var password = ""
     @State private var confirmation = ""
     @State private var isLoading = false
@@ -401,7 +462,6 @@ struct PasswordUpdateView: View {
     var body: some View {
         ZStack {
             DesignSystem.canvasBeige.ignoresSafeArea()
-
             ScrollView {
                 VStack(alignment: .leading, spacing: 24) {
                     Image(systemName: didUpdate ? "checkmark.shield.fill" : "key.fill")
@@ -409,22 +469,19 @@ struct PasswordUpdateView: View {
                         .foregroundColor(DesignSystem.accentNavy)
                         .padding(.top, 42)
 
-                    VStack(alignment: .leading, spacing: 10) {
-                        Text(didUpdate ? "Password updated" : "Choose a new password")
-                            .font(.system(size: 34, weight: .black, design: .rounded))
-                            .foregroundColor(.black.opacity(0.9))
+                    Text(didUpdate ? "Password updated" : "Choose a new password")
+                        .font(DesignSystem.displayFont(32))
+                        .foregroundColor(DesignSystem.ink)
 
-                        Text(didUpdate
-                             ? "Your new password is ready. You can continue securely into Cleave."
-                             : "Use at least eight characters, including a letter and a number.")
-                            .font(.system(size: 16, weight: .medium, design: .rounded))
-                            .foregroundColor(.black.opacity(0.62))
-                            .lineSpacing(4)
-                    }
+                    Text(didUpdate
+                         ? "Your new password is ready. You can continue securely into Cleave."
+                         : "Use at least eight characters, including a letter and a number.")
+                        .font(DesignSystem.bodyFont(16))
+                        .foregroundColor(DesignSystem.inkMuted)
 
                     if didUpdate {
                         Button("Continue to Cleave") {
-                            supabaseManager.completePasswordRecovery()
+                            SupabaseManager.shared.completePasswordRecovery()
                         }
                         .buttonStyle(CleavePrimaryButtonStyle())
                     } else {
@@ -434,38 +491,32 @@ struct PasswordUpdateView: View {
                             SecureField("Confirm new password", text: $confirmation)
                                 .textContentType(.newPassword)
                         }
-                        .font(.system(size: 17))
-                        .foregroundColor(.black)
+                        .font(DesignSystem.bodyFont(17))
+                        .foregroundColor(DesignSystem.ink)
                         .padding()
-                        .background(Color.white.opacity(0.8))
+                        .background(DesignSystem.surface)
                         .clipShape(RoundedRectangle(cornerRadius: 16, style: .continuous))
 
                         if let errorMessage {
                             Text(errorMessage)
                                 .font(.footnote)
                                 .foregroundColor(.red)
-                                .accessibilityLabel("Error: \(errorMessage)")
                         }
 
                         Button {
                             Task { await updatePassword() }
                         } label: {
-                            Group {
-                                if isLoading {
-                                    ProgressView().tint(.white)
-                                } else {
-                                    Text("Update Password")
-                                }
-                            }
+                            if isLoading { ProgressView().tint(.white) }
+                            else { Text("Update Password") }
                         }
                         .buttonStyle(CleavePrimaryButtonStyle())
                         .disabled(isLoading || password.isEmpty || confirmation.isEmpty)
 
                         Button("Cancel and Sign Out") {
-                            Task { await supabaseManager.cancelPasswordRecovery() }
+                            Task { await SupabaseManager.shared.cancelPasswordRecovery() }
                         }
-                        .font(.system(size: 14, weight: .semibold, design: .rounded))
-                        .foregroundColor(.black.opacity(0.6))
+                        .font(DesignSystem.titleFont(14))
+                        .foregroundColor(DesignSystem.inkMuted)
                         .frame(maxWidth: .infinity)
                     }
                 }
@@ -473,6 +524,7 @@ struct PasswordUpdateView: View {
             }
         }
         .interactiveDismissDisabled()
+        .preferredColorScheme(.light)
     }
 
     @MainActor
@@ -482,10 +534,9 @@ struct PasswordUpdateView: View {
             errorMessage = "The passwords do not match."
             return
         }
-
         isLoading = true
         do {
-            try await supabaseManager.updatePassword(password)
+            try await SupabaseManager.shared.updatePassword(password)
             didUpdate = true
         } catch {
             errorMessage = error.localizedDescription
@@ -497,7 +548,7 @@ struct PasswordUpdateView: View {
 private struct CleavePrimaryButtonStyle: ButtonStyle {
     func makeBody(configuration: Configuration) -> some View {
         configuration.label
-            .font(.system(size: 17, weight: .bold, design: .rounded))
+            .font(DesignSystem.titleFont(17))
             .foregroundColor(.white)
             .frame(maxWidth: .infinity)
             .padding(.vertical, 16)

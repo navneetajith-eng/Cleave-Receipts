@@ -23,48 +23,81 @@ struct NewGroupSheetView: View {
                 .frame(width: 40, height: 5)
                 .padding(.top, 16)
 
-            Text("Create New Group")
-                .font(.system(size: 24, weight: .semibold, design: .serif))
-                .foregroundColor(.black)
+            CleaveSectionHeading("Create a group", eyebrow: "New split", detail: "Add the people sharing the bill.")
+                .frame(maxWidth: .infinity, alignment: .leading)
+                .padding(.horizontal, 30)
 
-            TextField("Group Name", text: $newGroupName)
-                .font(.system(size: 20))
-                .foregroundColor(.black)
-                .padding()
-                .background(Color.black.opacity(0.1))
-                .cornerRadius(12)
+            TextField(
+                "Group name",
+                text: $newGroupName,
+                prompt: Text("Group name").foregroundStyle(DesignSystem.ink.opacity(0.34))
+            )
+                .font(DesignSystem.bodyFont(17))
+                .foregroundColor(DesignSystem.ink)
+                .tint(DesignSystem.accentTeal)
+                .padding(.horizontal, 16)
+                .frame(height: 56)
+                .background(DesignSystem.surface)
+                .clipShape(RoundedRectangle(cornerRadius: 16, style: .continuous))
+                .overlay(RoundedRectangle(cornerRadius: 16).stroke(DesignSystem.hairline, lineWidth: 1))
                 .padding(.horizontal, 30)
 
             // Custom Toggle for Collaborative Mode
             HStack {
                 VStack(alignment: .leading, spacing: 4) {
                     Text("Collaborative Group")
-                        .font(.system(size: 16, weight: .medium, design: .rounded))
-                        .foregroundColor(.black)
-                    Text(isCollaborative ? "Invite Cleave users and sync online" : "Use any names and keep this group on this device")
-                        .font(.system(size: 12))
-                        .foregroundColor(Color.black.opacity(0.6))
+                        .font(DesignSystem.titleFont(16))
+                        .foregroundColor(DesignSystem.ink)
+                    Text(DemoMode.isEnabled
+                         ? "Not available in Demo Mode"
+                         : (isCollaborative
+                            ? "Invite Cleave users and sync online"
+                            : "Use any names and keep this group on this device"))
+                        .font(DesignSystem.bodyFont(12))
+                        .foregroundColor(DesignSystem.inkMuted)
                 }
 
                 Spacer()
 
-                Toggle("", isOn: $isCollaborative)
-                    .labelsHidden()
-                    .tint(DesignSystem.accentNavy)
-                    .onChange(of: isCollaborative) { _, newValue in
-                        withAnimation(.spring()) {
-                            sheetDetent = newValue ? .large : .height(560)
-                        }
+                if DemoMode.isEnabled {
+                    ZStack(alignment: .leading) {
+                        Capsule()
+                            .fill(DesignSystem.ink.opacity(0.14))
+                        Circle()
+                            .fill(DesignSystem.surface)
+                            .padding(2)
+                            .shadow(color: DesignSystem.ink.opacity(0.12), radius: 2, y: 1)
                     }
+                    .frame(width: 51, height: 31)
+                    .overlay(Capsule().stroke(DesignSystem.ink.opacity(0.1), lineWidth: 1))
+                    .accessibilityElement()
+                    .accessibilityLabel("Collaborative Group")
+                    .accessibilityValue("Not available in Demo Mode")
+                } else {
+                    Toggle("", isOn: $isCollaborative)
+                        .labelsHidden()
+                        .tint(DesignSystem.accentNavy)
+                        .onChange(of: isCollaborative) { _, newValue in
+                            withAnimation(.spring()) {
+                                sheetDetent = newValue ? .large : .height(560)
+                            }
+                        }
+                        .accessibilityHint("Requires Cleave accounts and syncs online")
+                }
             }
+            .padding(.horizontal, 16)
+            .padding(.vertical, 16)
+            .background(DesignSystem.surface)
+            .clipShape(RoundedRectangle(cornerRadius: 18, style: .continuous))
+            .overlay(RoundedRectangle(cornerRadius: 18).stroke(DesignSystem.hairline, lineWidth: 1))
             .padding(.horizontal, 30)
-            .padding(.vertical, 10)
 
             if isCollaborative {
-                Divider().padding(.horizontal, 30)
-                CollaborativeSearchSheetView(selectedMembers: $selectedMembers, isEmbedded: true)
+                collaborativeMembersSection
+                    .transition(.move(edge: .top).combined(with: .opacity))
             } else {
                 localMembersSection
+                    .transition(.move(edge: .top).combined(with: .opacity))
             }
 
             Spacer()
@@ -76,7 +109,7 @@ struct NewGroupSheetView: View {
 
                 if !isCollaborative {
                     addPendingLocalMember()
-                    guard let userID = SupabaseManager.shared.currentUser?.id else {
+                    guard let userID = DemoMode.effectiveUserID else {
                         ErrorManager.shared.showError("Your local profile is still loading. Please try again.")
                         return
                     }
@@ -120,19 +153,20 @@ struct NewGroupSheetView: View {
                             .progressViewStyle(CircularProgressViewStyle(tint: .white))
                     } else {
                         Text(isCollaborative ? "Create Collaborative Group" : "Create Local Group")
-                            .font(.system(size: 18, weight: .bold, design: .rounded))
+                            .font(DesignSystem.titleFont(17))
                     }
                 }
                     .foregroundColor(.white)
                     .frame(maxWidth: .infinity)
                     .padding()
-                    .background(DesignSystem.accentTeal)
-                    .cornerRadius(16)
+                    .background(DesignSystem.accentNavy)
+                    .clipShape(Capsule())
                     .padding(.horizontal, 30)
             }
             .disabled(
                 isCreating
                 || newGroupName.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty
+                || (isCollaborative && selectedMembers.isEmpty)
                 || (!isCollaborative
                     && localMemberNames.isEmpty
                     && localMemberName.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty)
@@ -142,26 +176,52 @@ struct NewGroupSheetView: View {
         }
         .background(DesignSystem.canvasBeige.edgesIgnoringSafeArea(.all))
         .presentationDetents([.height(560), .large], selection: $sheetDetent)
+        .preferredColorScheme(.light)
+    }
+
+    @ViewBuilder
+    private var collaborativeMembersSection: some View {
+        VStack(alignment: .leading, spacing: 12) {
+            Text("Cleave members")
+                .font(DesignSystem.titleFont(16))
+                .foregroundStyle(DesignSystem.ink)
+
+            Text("Collaborative groups require Cleave accounts. Search by username to invite people.")
+                .font(DesignSystem.bodyFont(12))
+                .foregroundStyle(DesignSystem.inkMuted)
+                .fixedSize(horizontal: false, vertical: true)
+        }
+        .padding(.horizontal, 30)
+
+        CollaborativeSearchSheetView(selectedMembers: $selectedMembers, isEmbedded: true)
     }
 
     private var localMembersSection: some View {
         VStack(alignment: .leading, spacing: 12) {
             Text("People in this group")
-                .font(.system(size: 16, weight: .semibold, design: .rounded))
-                .foregroundColor(.black)
+                .font(DesignSystem.titleFont(16))
+                .foregroundColor(DesignSystem.ink)
 
             Text("Add everyone as they appear on the receipt. They do not need a Cleave account.")
-                .font(.system(size: 12))
-                .foregroundColor(.black.opacity(0.6))
+                .font(DesignSystem.bodyFont(12))
+                .foregroundColor(DesignSystem.inkMuted)
 
             HStack(spacing: 10) {
-                TextField("Name", text: $localMemberName)
+                TextField(
+                    "Name",
+                    text: $localMemberName,
+                    prompt: Text("Name").foregroundStyle(DesignSystem.ink.opacity(0.34))
+                )
+                    .font(DesignSystem.bodyFont(15))
+                    .foregroundStyle(DesignSystem.ink)
+                    .tint(DesignSystem.accentTeal)
                     .textInputAutocapitalization(.words)
                     .submitLabel(.done)
                     .onSubmit(addPendingLocalMember)
                     .padding(12)
-                    .background(Color.black.opacity(0.08))
+                    .background(DesignSystem.surface)
                     .clipShape(RoundedRectangle(cornerRadius: 12, style: .continuous))
+                    .overlay(RoundedRectangle(cornerRadius: 12).stroke(DesignSystem.hairline, lineWidth: 1))
 
                 Button(action: addPendingLocalMember) {
                     Image(systemName: "plus")
@@ -186,7 +246,7 @@ struct NewGroupSheetView: View {
                                     .font(.system(size: 10, weight: .bold))
                             }
                         }
-                        .font(.system(size: 14, weight: .medium, design: .rounded))
+                        .font(DesignSystem.titleFont(14))
                         .foregroundColor(.white)
                         .padding(.horizontal, 12)
                         .padding(.vertical, 8)

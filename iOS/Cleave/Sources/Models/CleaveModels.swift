@@ -9,6 +9,9 @@ struct Profile: Codable, Identifiable, Equatable, Hashable {
     let username: String?
     let avatarUrl: String?
     let createdAt: String?
+    let regionCode: String?
+    let venmoUsername: String?
+    let upiId: String?
 
     var displayName: String {
         let trimmed = username?.trimmingCharacters(in: .whitespacesAndNewlines) ?? ""
@@ -31,6 +34,9 @@ struct InboxItem: Codable, Identifiable, Equatable {
 struct GroupMemberModel: Codable, Identifiable, Equatable, Hashable {
     let id: UUID
     var username: String
+    var regionCode: String? = nil
+    var venmoUsername: String? = nil
+    var upiId: String? = nil
 
     var displayName: String {
         let trimmed = username.trimmingCharacters(in: .whitespacesAndNewlines)
@@ -43,6 +49,7 @@ struct RemoteReceipt: Codable, Identifiable, Equatable {
     let groupId: UUID
     var title: String
     let adminId: UUID
+    var currencyCode: String? = nil
     var taxAmount: Double
     var tipAmount: Double
     var discountAmount: Double
@@ -54,6 +61,22 @@ struct RemoteReceipt: Codable, Identifiable, Equatable {
     var total: Double {
         items.reduce(0) { $0 + $1.price } + taxAmount + tipAmount - discountAmount
     }
+
+    var currency: Currency {
+        Currency(rawValue: currencyCode ?? "") ?? .usd
+    }
+}
+
+struct RemoteSettlement: Codable, Identifiable, Equatable {
+    let id: UUID
+    let receiptId: UUID
+    let fromUserId: UUID
+    let toUserId: UUID
+    let amount: Double
+    let currencyCode: String
+    let status: String
+    let initiatedAt: String
+    let confirmedAt: String?
 }
 
 struct RemoteMemory: Codable, Identifiable, Equatable, Hashable {
@@ -97,6 +120,24 @@ private struct LocalReceiptCollection: Codable {
     var receipts: [RemoteReceipt]
 }
 
+enum DemoMode {
+    static let defaultsKey = "demoModeEnabled"
+    static let userID = UUID(uuidString: "D0000000-0000-0000-0000-000000000001")!
+
+    static var isEnabled: Bool {
+        #if DEBUG
+        return UserDefaults.standard.bool(forKey: defaultsKey)
+        #else
+        return false
+        #endif
+    }
+
+    @MainActor static var effectiveUserID: UUID? {
+        SupabaseManager.shared.currentUser?.id ?? (isEnabled ? userID : nil)
+    }
+
+}
+
 struct ReceiptDraft: Codable, Identifiable, Equatable {
     let id: UUID
     let groupID: UUID
@@ -138,6 +179,87 @@ final class AppStore: ObservableObject {
             // Cached and local groups remain fully usable while the network is unavailable.
             print("Group refresh deferred: \(error.localizedDescription)")
         }
+    }
+
+    func loadDemoData() {
+        #if DEBUG
+        let alexID = DemoMode.userID
+        let mayaID = UUID(uuidString: "D0000000-0000-0000-0000-000000000002")!
+        let samID = UUID(uuidString: "D0000000-0000-0000-0000-000000000003")!
+        let priyaID = UUID(uuidString: "D0000000-0000-0000-0000-000000000004")!
+        let fridayID = UUID(uuidString: "D1000000-0000-0000-0000-000000000001")!
+        let dubaiID = UUID(uuidString: "D1000000-0000-0000-0000-000000000002")!
+        let coffeeID = UUID(uuidString: "D1000000-0000-0000-0000-000000000003")!
+
+        let members = [
+            GroupMemberModel(id: alexID, username: "Alex", regionCode: "US", venmoUsername: "alex-cleaves"),
+            GroupMemberModel(id: mayaID, username: "Maya", regionCode: "US", venmoUsername: "maya-splits"),
+            GroupMemberModel(id: samID, username: "Sam", regionCode: "AE"),
+            GroupMemberModel(id: priyaID, username: "Priya", regionCode: "IN", upiId: "priya@upi")
+        ]
+
+        groups = [
+            GroupModel(id: fridayID, name: "Friday Dinner", members: members, isCollaborative: false, createdBy: alexID),
+            GroupModel(id: dubaiID, name: "Dubai Weekend", members: Array(members.prefix(3)), isCollaborative: false, createdBy: alexID),
+            GroupModel(id: coffeeID, name: "Coffee Run", members: Array(members.prefix(2)), isCollaborative: false, createdBy: alexID)
+        ]
+
+        localReceipts = [
+            fridayID: [RemoteReceipt(
+                id: UUID(uuidString: "D2000000-0000-0000-0000-000000000001")!,
+                groupId: fridayID,
+                title: "The Garden Table",
+                adminId: alexID,
+                currencyCode: "USD",
+                taxAmount: 8.40,
+                tipAmount: 16.00,
+                discountAmount: 5.00,
+                imageUrl: nil,
+                createdAt: "2026-08-08T19:30:00Z",
+                items: [
+                    ReceiptItem(id: "demo-burrata", name: "Burrata", price: 18.00),
+                    ReceiptItem(id: "demo-pasta", name: "Truffle Pasta", price: 32.00),
+                    ReceiptItem(id: "demo-pizza", name: "Margherita Pizza", price: 24.00),
+                    ReceiptItem(id: "demo-spritz", name: "Orange Spritz", price: 14.00)
+                ]
+            )],
+            dubaiID: [RemoteReceipt(
+                id: UUID(uuidString: "D2000000-0000-0000-0000-000000000002")!,
+                groupId: dubaiID,
+                title: "Jumeirah Breakfast",
+                adminId: alexID,
+                currencyCode: "AED",
+                taxAmount: 9.50,
+                tipAmount: 0,
+                discountAmount: 0,
+                imageUrl: nil,
+                createdAt: "2026-08-09T09:15:00Z",
+                items: [
+                    ReceiptItem(id: "demo-eggs", name: "Turkish Eggs", price: 48.00),
+                    ReceiptItem(id: "demo-coffee", name: "Flat White", price: 24.00),
+                    ReceiptItem(id: "demo-pastry", name: "Pistachio Croissant", price: 31.00)
+                ]
+            )],
+            coffeeID: [RemoteReceipt(
+                id: UUID(uuidString: "D2000000-0000-0000-0000-000000000003")!,
+                groupId: coffeeID,
+                title: "Morning Coffee",
+                adminId: alexID,
+                currencyCode: "USD",
+                taxAmount: 1.35,
+                tipAmount: 3.00,
+                discountAmount: 0,
+                imageUrl: nil,
+                createdAt: "2026-08-10T08:05:00Z",
+                items: [
+                    ReceiptItem(id: "demo-latte", name: "Oat Latte", price: 6.50),
+                    ReceiptItem(id: "demo-matcha", name: "Iced Matcha", price: 7.25)
+                ]
+            )]
+        ]
+        receiptDrafts = []
+        activeUserID = DemoMode.userID
+        #endif
     }
 
     @discardableResult
