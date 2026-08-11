@@ -22,16 +22,19 @@ provider "google" {
 locals {
   backend_secrets = {
     database_url = {
-      env_name  = "DATABASE_URL"
-      secret_id = var.database_url_secret_id
+      env_name       = "DATABASE_URL"
+      secret_id      = var.database_url_secret_id
+      secret_version = var.database_url_secret_version
     }
     gemini_api_key = {
-      env_name  = "GEMINI_API_KEY"
-      secret_id = var.gemini_api_key_secret_id
+      env_name       = "GEMINI_API_KEY"
+      secret_id      = var.gemini_api_key_secret_id
+      secret_version = var.gemini_api_key_secret_version
     }
     supabase_secret_key = {
-      env_name  = "SUPABASE_SECRET_KEY"
-      secret_id = var.supabase_secret_key_secret_id
+      env_name       = "SUPABASE_SECRET_KEY"
+      secret_id      = var.supabase_secret_key_secret_id
+      secret_version = var.supabase_secret_key_secret_version
     }
   }
 }
@@ -137,9 +140,10 @@ resource "google_cloud_run_v2_service" "backend" {
 
       resources {
         limits = {
-          cpu    = "1"
+          cpu    = "1000m"
           memory = "512Mi"
         }
+        cpu_idle          = true
         startup_cpu_boost = true
       }
 
@@ -150,7 +154,7 @@ resource "google_cloud_run_v2_service" "backend" {
           value_source {
             secret_key_ref {
               secret  = google_secret_manager_secret.backend[env.key].secret_id
-              version = "latest"
+              version = env.value.secret_version
             }
           }
         }
@@ -166,9 +170,12 @@ resource "google_cloud_run_v2_service" "backend" {
         value = google_storage_bucket.receipts.name
       }
 
-      env {
-        name  = "CORS_ALLOWED_ORIGINS"
-        value = var.cors_allowed_origins
+      dynamic "env" {
+        for_each = var.cors_allowed_origins == "" ? [] : [var.cors_allowed_origins]
+        content {
+          name  = "CORS_ALLOWED_ORIGINS"
+          value = env.value
+        }
       }
     }
   }
@@ -180,6 +187,7 @@ resource "google_cloud_run_v2_service" "backend" {
       client,
       client_version,
       template[0].containers[0].image,
+      template[0].labels,
       template[0].revision,
     ]
   }
