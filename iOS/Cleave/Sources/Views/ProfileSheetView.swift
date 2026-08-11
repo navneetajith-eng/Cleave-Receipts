@@ -82,9 +82,33 @@ struct ProfileSheetView: View {
                                     ForEach(friends) { friend in
                                         HStack(spacing: 12) {
                                             ProfileAvatarView(profileID: friend.id, fallbackName: friend.displayName, size: 42)
-                                            Text(friend.displayName)
-                                                .font(.system(size: 16, weight: .semibold, design: .rounded))
+                                            VStack(alignment: .leading, spacing: 3) {
+                                                Text(friend.displayName)
+                                                    .font(.system(size: 16, weight: .semibold, design: .rounded))
+                                                if let handle = paymentHandle(for: friend) {
+                                                    Text(handle.display)
+                                                        .font(.system(size: 13, weight: .medium, design: .rounded))
+                                                        .foregroundStyle(DesignSystem.ink.opacity(0.55))
+                                                } else {
+                                                    Text("No payment handle shared")
+                                                        .font(.system(size: 12, weight: .medium, design: .rounded))
+                                                        .foregroundStyle(DesignSystem.ink.opacity(0.38))
+                                                }
+                                            }
                                             Spacer()
+                                            if let handle = paymentHandle(for: friend) {
+                                                Button {
+                                                    UIPasteboard.general.string = handle.value
+                                                    HapticsManager.shared.playNotification(type: .success)
+                                                } label: {
+                                                    Image(systemName: "doc.on.doc")
+                                                        .font(.system(size: 14, weight: .bold))
+                                                        .foregroundStyle(DesignSystem.accentNavy)
+                                                        .frame(width: 36, height: 36)
+                                                        .background(DesignSystem.canvasBeige, in: Circle())
+                                                }
+                                                .accessibilityLabel("Copy payment handle for \(friend.displayName)")
+                                            }
                                         }
                                         .padding(14)
                                         .background(.white)
@@ -111,11 +135,7 @@ struct ProfileSheetView: View {
         .task { await loadProfile() }
         .onChange(of: selectedPhoto) { _, item in
             guard let item else { return }
-            Task {
-                guard let data = try? await item.loadTransferable(type: Data.self),
-                      let image = UIImage(data: data) else { return }
-                await saveAvatar(image)
-            }
+            Task { await importAvatar(item) }
         }
     }
 
@@ -135,7 +155,7 @@ struct ProfileSheetView: View {
             .frame(width: 104, height: 104)
             .clipShape(Circle())
 
-            PhotosPicker(selection: $selectedPhoto, matching: .images) {
+            PhotosPicker(selection: $selectedPhoto, matching: .images, preferredItemEncoding: .compatible) {
                 Label("Change photo", systemImage: "camera.fill")
                     .font(.system(size: 15, weight: .bold, design: .rounded))
                     .foregroundColor(DesignSystem.accentNavy)
@@ -143,6 +163,22 @@ struct ProfileSheetView: View {
             .disabled(isSaving)
         }
         .padding(.top, 20)
+    }
+
+    @MainActor
+    private func importAvatar(_ item: PhotosPickerItem) async {
+        guard !isSaving else { return }
+        isSaving = true
+        defer {
+            isSaving = false
+            selectedPhoto = nil
+        }
+        do {
+            let image = try await PhotoImport.loadImage(from: item)
+            try await uploadAvatar(image.cleavePreparedForUpload(maxDimension: 1_200))
+        } catch {
+            ErrorManager.shared.showError(error.localizedDescription)
+        }
     }
 
     private func loadProfile() async {
@@ -189,17 +225,11 @@ struct ProfileSheetView: View {
         }
     }
 
-    private func saveAvatar(_ image: UIImage) async {
-        guard !isSaving else { return }
-        isSaving = true
-        defer { isSaving = false }
-        do {
-            profile = try await CleaveAPI.shared.updateProfileAvatar(image: image)
-            avatarImage = image
-            HapticsManager.shared.playNotification(type: .success)
-        } catch {
-            ErrorManager.shared.showError(error.localizedDescription)
-        }
+    @MainActor
+    private func uploadAvatar(_ image: UIImage) async throws {
+        profile = try await CleaveAPI.shared.updateProfileAvatar(image: image)
+        avatarImage = image
+        HapticsManager.shared.playNotification(type: .success)
     }
 
     private var paymentDetailsSection: some View {
@@ -245,6 +275,14 @@ struct ProfileSheetView: View {
                         .lineSpacing(3)
                 }
 
+                Label(
+                    "Cleave checks the format, not ownership. This handle is shared only with people in your collaborative groups so they can pay you back.",
+                    systemImage: "info.circle"
+                )
+                .font(.system(size: 12, weight: .medium, design: .rounded))
+                .foregroundStyle(DesignSystem.ink.opacity(0.55))
+                .fixedSize(horizontal: false, vertical: true)
+
                 Button {
                     Task { await savePaymentDetails() }
                 } label: {
@@ -280,6 +318,17 @@ struct ProfileSheetView: View {
             HapticsManager.shared.playNotification(type: .success)
         } catch {
             ErrorManager.shared.showError(error.localizedDescription)
+        }
+    }
+
+    private func paymentHandle(for friend: Profile) -> (display: String, value: String)? {
+        switch friend.regionCode.flatMap(AppRegion.init(rawValue:)) {
+        case .unitedStates:
+            return friend.venmoUsername.map { ("Venmo @\($0)", "@\($0)") }
+        case .india:
+            return friend.upiId.map { ("UPI \($0)", $0) }
+        default:
+            return nil
         }
     }
 }

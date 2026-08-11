@@ -33,7 +33,8 @@ struct BespokeCaptureView: View {
                 .position(x: 385, y: 155)
                 .opacity(0.45)
 
-            VStack(alignment: .leading, spacing: 0) {
+            ScrollView(showsIndicators: false) {
+                VStack(alignment: .leading, spacing: 0) {
                 HStack(alignment: .center) {
                     CleaveIconButton(systemName: "xmark", accessibilityText: "Close scanner") {
                         withAnimation(.spring(response: 0.6, dampingFraction: 0.8)) {
@@ -48,7 +49,7 @@ struct BespokeCaptureView: View {
                         .foregroundStyle(DesignSystem.accentTeal)
                 }
                 .padding(.horizontal, 22)
-                .padding(.top, 58)
+                .padding(.top, 8)
 
                 CleaveSectionHeading(
                     showParsedItems ? "Receipt found" : "Capture the receipt",
@@ -126,7 +127,7 @@ struct BespokeCaptureView: View {
                     }
                 }
                 .frame(maxWidth: .infinity)
-                .frame(height: 360)
+                .frame(height: 340)
                 .padding(.horizontal, 22)
 
                 if showParsedItems {
@@ -148,16 +149,12 @@ struct BespokeCaptureView: View {
                     .transition(.move(edge: .bottom).combined(with: .opacity))
                 } else {
                     HStack(spacing: 12) {
-                        PhotosPicker(selection: $selectedPhotoItem, matching: .images) {
+                        PhotosPicker(selection: $selectedPhotoItem, matching: .images, preferredItemEncoding: .compatible) {
                             captureChoice(icon: "photo.on.rectangle", title: "Photo library", prominent: false)
                         }
                         .onChange(of: selectedPhotoItem) { _, newItem in
-                            Task {
-                                if let data = try? await newItem?.loadTransferable(type: Data.self),
-                                   let image = UIImage(data: data) {
-                                    await uploadAndParseImage(image)
-                                }
-                            }
+                            guard let newItem else { return }
+                            Task { await importSelectedPhoto(newItem) }
                         }
 
                         Button(action: {
@@ -172,7 +169,8 @@ struct BespokeCaptureView: View {
                     .padding(.top, 18)
                     .opacity(isScanning ? 0 : 1)
                 }
-                Spacer(minLength: 18)
+                    Spacer(minLength: 28)
+                }
             }
         }
         .fullScreenCover(isPresented: $showingScanner) {
@@ -182,9 +180,23 @@ struct BespokeCaptureView: View {
         .onChange(of: scannedImage) { _, newImage in
             if let image = newImage {
                 Task {
-                    await uploadAndParseImage(image)
+                    await uploadAndParseImage(image.cleavePreparedForUpload())
+                    scannedImage = nil
                 }
             }
+        }
+    }
+
+    @MainActor
+    private func importSelectedPhoto(_ item: PhotosPickerItem) async {
+        isScanning = true
+        defer { selectedPhotoItem = nil }
+        do {
+            let image = try await PhotoImport.loadImage(from: item)
+            await uploadAndParseImage(image.cleavePreparedForUpload())
+        } catch {
+            isScanning = false
+            ErrorManager.shared.showError(error.localizedDescription)
         }
     }
 
@@ -286,11 +298,26 @@ struct BespokeCaptureView: View {
             print("Error scanning: \(error)")
             await MainActor.run {
                 ProductMetrics.record(.receiptCaptureToReview, startedAt: startedAt, succeeded: false)
-                store.markDraftFailed(id: draft.id, message: error.localizedDescription)
-                ErrorManager.shared.showError("Receipt saved on this device. Open the group and tap Retry when you're online.")
+                if shouldKeepDraft(after: error) {
+                    store.markDraftFailed(id: draft.id, message: error.localizedDescription)
+                    ErrorManager.shared.showError("The receipt is saved on this device. Open the group and tap Retry when your connection is restored.")
+                } else {
+                    store.removeDraft(id: draft.id)
+                    ErrorManager.shared.showError(error.localizedDescription)
+                }
                 self.isScanning = false
             }
         }
+    }
+
+    private func shouldKeepDraft(after error: Error) -> Bool {
+        if let apiError = error as? CleaveAPI.APIError {
+            return apiError.shouldKeepReceiptDraft
+        }
+        if let urlError = error as? URLError {
+            return urlError.code != .cancelled
+        }
+        return false
     }
 
     private func performScan() {

@@ -30,7 +30,8 @@ struct BespokeGroupDetailView: View {
                 .ignoresSafeArea(edges: .bottom)
 
             if let group = group {
-                VStack(alignment: .leading, spacing: 20) {
+                ScrollView(showsIndicators: false) {
+                    VStack(alignment: .leading, spacing: 20) {
                     HStack {
                         Button(action: {
                             withAnimation(.spring(response: 0.6, dampingFraction: 0.8)) {
@@ -49,7 +50,7 @@ struct BespokeGroupDetailView: View {
                         Spacer()
                     }
                     .padding(.horizontal, 30)
-                    .padding(.top, 60)
+                    .padding(.top, 8)
 
                     Text(group.name)
                         .font(DesignSystem.displayFont(42))
@@ -109,10 +110,8 @@ struct BespokeGroupDetailView: View {
                     }
                     .frame(height: 100)
 
-                    Spacer()
-
                     // Action Area
-                    VStack(spacing: 30) {
+                    VStack(spacing: 24) {
                         if !store.drafts(for: groupId).isEmpty {
                             VStack(spacing: 12) {
                                 ForEach(store.drafts(for: groupId)) { draft in
@@ -133,7 +132,7 @@ struct BespokeGroupDetailView: View {
                                 title: "No Receipts",
                                 message: "Scan your first receipt to start splitting."
                             )
-                            .padding(.top, 40)
+                            .padding(.vertical, 32)
                         } else {
                             VStack(spacing: 16) {
                                 ForEach(remoteReceipts) { receipt in
@@ -180,8 +179,12 @@ struct BespokeGroupDetailView: View {
                         }
                         .buttonStyle(PressScaleButtonStyle())
                     }
-                    .padding(40)
+                    .padding(.horizontal, 30)
+                    .padding(.top, 18)
+                    .padding(.bottom, 42)
+                    }
                 }
+                .scrollBounceBehavior(.basedOnSize)
                 .refreshable {
                     if let g = self.group, g.isCollaborative {
                         do {
@@ -323,35 +326,45 @@ struct BespokeGroupDetailView: View {
     }
 
     private func receiptDraftCard(_ draft: ReceiptDraft) -> some View {
-        HStack(spacing: 14) {
-            Image(systemName: "icloud.slash.fill")
-                .foregroundColor(.white)
-                .frame(width: 42, height: 42)
-                .background(Color.black.opacity(0.25))
-                .clipShape(Circle())
-
-            VStack(alignment: .leading, spacing: 4) {
-                Text("Receipt saved on this device")
-                    .font(DesignSystem.titleFont(15))
+        VStack(alignment: .leading, spacing: 14) {
+            HStack(alignment: .top, spacing: 12) {
+                Image(systemName: "icloud.slash.fill")
                     .foregroundColor(.white)
-                Text("Scanning or sync didn't finish.")
-                    .font(DesignSystem.bodyFont(13))
-                    .foregroundColor(.white.opacity(0.72))
+                    .frame(width: 42, height: 42)
+                    .background(Color.black.opacity(0.25))
+                    .clipShape(Circle())
+
+                VStack(alignment: .leading, spacing: 5) {
+                    Text("Receipt saved on this device")
+                        .font(DesignSystem.titleFont(15))
+                        .foregroundColor(.white)
+                        .fixedSize(horizontal: false, vertical: true)
+                    Text(draft.errorMessage ?? "Scanning or sync didn't finish.")
+                        .font(DesignSystem.bodyFont(13))
+                        .foregroundColor(.white.opacity(0.72))
+                        .lineLimit(3)
+                        .fixedSize(horizontal: false, vertical: true)
+                }
+                Spacer(minLength: 0)
             }
-            Spacer()
+
             Button {
                 Task { await retry(draft) }
             } label: {
-                if retryingDraftIDs.contains(draft.id) {
-                    ProgressView().tint(.white)
-                } else {
-                    Text("Retry")
-                        .font(DesignSystem.titleFont(14))
+                HStack(spacing: 8) {
+                    if retryingDraftIDs.contains(draft.id) {
+                        ProgressView().tint(.white)
+                    } else {
+                        Image(systemName: "arrow.clockwise")
+                        Text("Retry scan")
+                            .font(DesignSystem.titleFont(14))
+                    }
                 }
+                .frame(maxWidth: .infinity)
             }
             .foregroundColor(.white)
             .padding(.horizontal, 14)
-            .frame(height: 38)
+            .frame(height: 42)
             .background(Color.black.opacity(0.35))
             .clipShape(Capsule())
             .disabled(retryingDraftIDs.contains(draft.id))
@@ -420,8 +433,14 @@ struct BespokeGroupDetailView: View {
             store.removeDraft(id: draft.id)
             HapticsManager.shared.playNotification(type: .success)
         } catch {
-            store.markDraftFailed(id: draft.id, message: error.localizedDescription)
-            ErrorManager.shared.showError("Still saved on this device. We'll keep it here until Retry succeeds.")
+            if let apiError = error as? CleaveAPI.APIError,
+               !apiError.shouldKeepReceiptDraft {
+                store.removeDraft(id: draft.id)
+                ErrorManager.shared.showError(error.localizedDescription)
+            } else {
+                store.markDraftFailed(id: draft.id, message: error.localizedDescription)
+                ErrorManager.shared.showError("The receipt is still saved here. Retry after your connection or session is restored.")
+            }
         }
     }
 

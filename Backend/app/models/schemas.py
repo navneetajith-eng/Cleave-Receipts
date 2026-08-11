@@ -198,7 +198,9 @@ class Receipt(BaseModel):
 
 class LineItemBase(BaseModel):
     description: str = Field(min_length=1, max_length=200)
-    price: float = Field(gt=0, le=1_000_000)
+    # Gemini structured output accepts `minimum`, but rejects JSON Schema's
+    # `exclusiveMinimum`. Currency values use two decimal places in Cleave.
+    price: float = Field(ge=0.01, le=1_000_000)
 
 
 class ParsedReceipt(BaseModel):
@@ -206,7 +208,7 @@ class ParsedReceipt(BaseModel):
     tax: float = Field(ge=0, le=1_000_000)
     tip: float = Field(ge=0, le=1_000_000)
     discount: float = Field(ge=0, le=1_000_000)
-    total: float = Field(gt=0, le=1_000_000)
+    total: float = Field(ge=0.01, le=1_000_000)
     line_items: List[LineItemBase]
 
 
