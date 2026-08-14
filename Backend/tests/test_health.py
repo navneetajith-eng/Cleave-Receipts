@@ -18,8 +18,9 @@ class UnavailableDatabase:
 def test_health_and_readiness_check_the_database():
     database = HealthyDatabase()
 
-    assert health(database) == {"status": "ok"}
-    assert ready(database) == {"status": "ok"}
+    expected = {"status": "ok", "api_version": 3}
+    assert health(database) == expected
+    assert ready(database) == expected
 
 
 @pytest.mark.parametrize("endpoint", [health, ready])

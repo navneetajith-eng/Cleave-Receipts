@@ -12,19 +12,6 @@
     <string>$(PRODUCT_BUNDLE_IDENTIFIER)</string>
     <key>CFBundleInfoDictionaryVersion</key>
     <string>6.0</string>
-    <key>CFBundleURLTypes</key>
-    <array>
-        <dict>
-            <key>CFBundleTypeRole</key>
-            <string>Editor</string>
-            <key>CFBundleURLName</key>
-            <string>com.cleave.Cleave.auth</string>
-            <key>CFBundleURLSchemes</key>
-            <array>
-                <string>cleave</string>
-            </array>
-        </dict>
-    </array>
     <key>CFBundleName</key>
     <string>$(PRODUCT_NAME)</string>
     <key>CFBundlePackageType</key>
@@ -39,6 +26,8 @@
     <string>$(CLEAVE_SUPABASE_URL)</string>
     <key>CleaveSupabaseAnonKey</key>
     <string>$(CLEAVE_SUPABASE_ANON_KEY)</string>
+    <key>CleaveWebsiteBaseURL</key>
+    <string>$(CLEAVE_WEBSITE_BASE_URL)</string>
     <key>LSApplicationQueriesSchemes</key>
     <array>
         <string>venmo</string>

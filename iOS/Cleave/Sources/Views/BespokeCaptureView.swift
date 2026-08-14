@@ -17,7 +17,7 @@ struct BespokeCaptureView: View {
     @State private var parsedDiscount: Double = 0
     @State private var parsedTitle: String = ""
     @State private var parsedReceiptId: String = ""
-    @State private var parsedCurrency: Currency = CurrencyManager.shared.currentCurrency
+    @State private var parsedCurrency: Currency = RegionManager.shared.currentRegion.currency
 
     @State private var selectedPhotoItem: PhotosPickerItem? = nil
 
@@ -33,8 +33,7 @@ struct BespokeCaptureView: View {
                 .position(x: 385, y: 155)
                 .opacity(0.45)
 
-            ScrollView(showsIndicators: false) {
-                VStack(alignment: .leading, spacing: 0) {
+            VStack(alignment: .leading, spacing: 0) {
                 HStack(alignment: .center) {
                     CleaveIconButton(systemName: "xmark", accessibilityText: "Close scanner") {
                         withAnimation(.spring(response: 0.6, dampingFraction: 0.8)) {
@@ -49,7 +48,7 @@ struct BespokeCaptureView: View {
                         .foregroundStyle(DesignSystem.accentTeal)
                 }
                 .padding(.horizontal, 22)
-                .padding(.top, 8)
+                .padding(.top, 58)
 
                 CleaveSectionHeading(
                     showParsedItems ? "Receipt found" : "Capture the receipt",
@@ -112,7 +111,7 @@ struct BespokeCaptureView: View {
                                     Text(item.name)
                                         .lineLimit(1)
                                     Spacer()
-                                    Text(CurrencyManager.shared.format(item.price))
+                                    Text(CurrencyManager.shared.format(item.price, currency: parsedCurrency))
                                         .font(DesignSystem.titleFont(13))
                                 }
                                 .font(DesignSystem.bodyFont(14))
@@ -123,17 +122,25 @@ struct BespokeCaptureView: View {
                                 .clipShape(RoundedRectangle(cornerRadius: 13, style: .continuous))
                             }
                         }
+
+                        Picker("Receipt currency", selection: $parsedCurrency) {
+                            ForEach(Currency.allCases) { currency in
+                                Text(currency.displayName).tag(currency)
+                            }
+                        }
+                        .pickerStyle(.menu)
+                        .tint(DesignSystem.accentNavy)
                         .transition(.scale(scale: 0.8).combined(with: .opacity))
                     }
                 }
                 .frame(maxWidth: .infinity)
-                .frame(height: 340)
+                .frame(height: 360)
                 .padding(.horizontal, 22)
 
                 if showParsedItems {
                     Button(action: {
                         withAnimation(.spring(response: 0.6, dampingFraction: 0.8)) {
-                            appState = .assignment(receiptId: parsedReceiptId, group: groupId, title: parsedTitle, items: parsedItems, assignments: [:], tax: parsedTax, tip: parsedTip, discount: parsedDiscount, currency: parsedCurrency)
+                            appState = .assignment(receiptId: parsedReceiptId, group: groupId, title: parsedTitle, items: parsedItems, assignments: [:], tax: parsedTax, tip: parsedTip, discount: parsedDiscount, currency: parsedCurrency, viewerIsAdmin: true, adminOverrideMode: false)
                         }
                     }) {
                         HStack {
@@ -169,8 +176,7 @@ struct BespokeCaptureView: View {
                     .padding(.top, 18)
                     .opacity(isScanning ? 0 : 1)
                 }
-                    Spacer(minLength: 28)
-                }
+                Spacer(minLength: 18)
             }
         }
         .fullScreenCover(isPresented: $showingScanner) {
@@ -189,7 +195,6 @@ struct BespokeCaptureView: View {
 
     @MainActor
     private func importSelectedPhoto(_ item: PhotosPickerItem) async {
-        isScanning = true
         defer { selectedPhotoItem = nil }
         do {
             let image = try await PhotoImport.loadImage(from: item)
@@ -225,6 +230,12 @@ struct BespokeCaptureView: View {
         let draft: ReceiptDraft
         do {
             draft = try store.stageReceiptImage(image, groupID: groupId)
+        } catch is CancellationError {
+            await MainActor.run { self.isScanning = false }
+            return
+        } catch let error as URLError where error.code == .cancelled {
+            await MainActor.run { self.isScanning = false }
+            return
         } catch {
             ErrorManager.shared.showError("Cleave couldn't save this photo on your device. Please free some storage and try again.")
             await MainActor.run { isScanning = false }
@@ -241,6 +252,7 @@ struct BespokeCaptureView: View {
                 if DemoMode.isEnabled {
                     parsed = ParsedReceiptResponse(
                         vendorName: "Demo Market",
+                        currencyCode: nil,
                         tax: 2.35,
                         tip: 0,
                         discount: 1,
@@ -259,7 +271,7 @@ struct BespokeCaptureView: View {
                     groupId: groupId,
                     title: parsed.vendorName,
                     adminId: userID,
-                    currencyCode: CurrencyManager.shared.currentCurrency.rawValue,
+                    currencyCode: parsed.currencyCode ?? RegionManager.shared.currentRegion.currency,
                     taxAmount: parsed.tax,
                     tipAmount: parsed.tip,
                     discountAmount: parsed.discount,
@@ -274,7 +286,7 @@ struct BespokeCaptureView: View {
                 response = try await CleaveAPI.shared.uploadReceiptImage(
                     image: image,
                     groupID: groupId,
-                    currency: CurrencyManager.shared.currentCurrency
+                    requestID: draft.id
                 )
             }
             let fetchedItems = response.items
@@ -294,34 +306,55 @@ struct BespokeCaptureView: View {
                     self.isScanning = false
                 }
             }
+        } catch is CancellationError {
+            await MainActor.run { self.isScanning = false }
+            return
+        } catch let error as URLError where error.code == .cancelled {
+            await MainActor.run { self.isScanning = false }
+            return
         } catch {
             print("Error scanning: \(error)")
             await MainActor.run {
                 ProductMetrics.record(.receiptCaptureToReview, startedAt: startedAt, succeeded: false)
-                if shouldKeepDraft(after: error) {
-                    store.markDraftFailed(id: draft.id, message: error.localizedDescription)
-                    ErrorManager.shared.showError("The receipt is saved on this device. Open the group and tap Retry when your connection is restored.")
-                } else {
-                    store.removeDraft(id: draft.id)
-                    ErrorManager.shared.showError(error.localizedDescription)
-                }
+                let recovery = ReceiptScanRecovery.message(for: error)
+                store.markDraftFailed(id: draft.id, message: recovery)
+                ErrorManager.shared.showError("Receipt saved safely on this device. \(recovery)")
                 self.isScanning = false
             }
         }
     }
 
-    private func shouldKeepDraft(after error: Error) -> Bool {
-        if let apiError = error as? CleaveAPI.APIError {
-            return apiError.shouldKeepReceiptDraft
-        }
-        if let urlError = error as? URLError {
-            return urlError.code != .cancelled
-        }
-        return false
-    }
-
     private func performScan() {
         // This is now unused because we use native DocumentScanner, but kept as a fallback method if needed
+    }
+}
+
+enum ReceiptScanRecovery {
+    static func message(for error: Error) -> String {
+        if let apiError = error as? CleaveAPI.APIError {
+            switch apiError {
+            case .serviceUpdateRequired:
+                return "The beta service needs an update before scanning can sync."
+            case .unauthorized:
+                return "Your session expired. Sign in, then tap Retry."
+            case .server(let status, let message):
+                if status == 429 { return "Scanning is busy. Wait a moment, then tap Retry." }
+                if status == 502 || status == 503 || status == 504 {
+                    return "The scanning service is temporarily unavailable. Tap Retry shortly."
+                }
+                return message
+            case .configuration:
+                return "The Cleave service is not configured in this build."
+            case .invalidResponse, .decoding:
+                return "The service returned an incomplete response. Tap Retry."
+            }
+        }
+        if let urlError = error as? URLError {
+            return urlError.code == .notConnectedToInternet
+                ? "Connect to the internet, then tap Retry."
+                : "The connection was interrupted. Tap Retry."
+        }
+        return error.localizedDescription
     }
 }
 

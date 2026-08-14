@@ -37,66 +37,6 @@ enum Currency: String, CaseIterable, Identifiable, Codable {
     }
 }
 
-/// Currency-aware integer money used at financial boundaries. UI text fields may
-/// still edit decimal values, but allocation and persistence must round once into
-/// minor units instead of repeatedly operating on binary floating-point values.
-struct Money: Codable, Equatable, Comparable {
-    let minorUnits: Int64
-    let currency: Currency
-
-    init(minorUnits: Int64, currency: Currency) {
-        self.minorUnits = minorUnits
-        self.currency = currency
-    }
-
-    init(amount: Double, currency: Currency) {
-        self.init(
-            minorUnits: Int64((amount * 100).rounded(.toNearestOrAwayFromZero)),
-            currency: currency
-        )
-    }
-
-    var amount: Double { Double(minorUnits) / 100 }
-
-    static func < (lhs: Money, rhs: Money) -> Bool {
-        precondition(lhs.currency == rhs.currency, "Cannot compare different currencies")
-        return lhs.minorUnits < rhs.minorUnits
-    }
-}
-
-enum MoneyAllocator {
-    /// Largest-remainder proportional allocation. The returned minor units always
-    /// sum exactly to `totalMinorUnits` for positive weights.
-    static func allocate(
-        totalMinorUnits: Int64,
-        weights: [String: Int64]
-    ) -> [String: Int64] {
-        let positive = weights.filter { $0.value > 0 }
-        let weightTotal = positive.values.reduce(0, +)
-        guard totalMinorUnits > 0, weightTotal > 0 else {
-            return Dictionary(uniqueKeysWithValues: weights.keys.map { ($0, 0) })
-        }
-
-        var result: [String: Int64] = [:]
-        var remainders: [(key: String, remainder: Int64)] = []
-        for (key, weight) in positive {
-            let numerator = totalMinorUnits * weight
-            result[key] = numerator / weightTotal
-            remainders.append((key, numerator % weightTotal))
-        }
-
-        let allocated = result.values.reduce(0, +)
-        let unitsLeft = Int(totalMinorUnits - allocated)
-        for entry in remainders.sorted(by: {
-            $0.remainder == $1.remainder ? $0.key < $1.key : $0.remainder > $1.remainder
-        }).prefix(unitsLeft) {
-            result[entry.key, default: 0] += 1
-        }
-        for key in weights.keys where result[key] == nil { result[key] = 0 }
-        return result
-    }
-}
-
 enum SettlementMethod: String {
     case venmo
     case googlePayUPI
@@ -216,6 +156,7 @@ final class RegionManager {
 enum PaymentPreferences {
     static let venmoKey = "payment.venmoUsername"
     static let upiKey = "payment.upiID"
+    static let aaniKey = "payment.aaniID"
     static let syncPendingKey = "payment.syncPending"
 
     static var venmoUsername: String {
@@ -224,6 +165,10 @@ enum PaymentPreferences {
 
     static var upiID: String {
         UserDefaults.standard.string(forKey: upiKey) ?? ""
+    }
+
+    static var aaniID: String {
+        UserDefaults.standard.string(forKey: aaniKey) ?? ""
     }
 
     static var needsSync: Bool {
@@ -254,6 +199,17 @@ enum PaymentPreferences {
         ) != nil
     }
 
+    static func normalizedAani(_ value: String) -> String {
+        value.trimmingCharacters(in: .whitespacesAndNewlines)
+    }
+
+    static func isValidAani(_ value: String) -> Bool {
+        normalizedAani(value).range(
+            of: #"^[A-Za-z0-9@+._-]{2,128}$"#,
+            options: .regularExpression
+        ) != nil
+    }
+
     static func isComplete(for region: AppRegion, venmo: String, upi: String) -> Bool {
         switch region {
         case .unitedStates: return isValidVenmo(venmo)
@@ -262,16 +218,13 @@ enum PaymentPreferences {
         }
     }
 
-    static func save(region: AppRegion, venmo: String, upi: String) {
+    static func save(region: AppRegion, venmo: String, upi: String, aani: String? = nil) {
         RegionManager.shared.select(region)
-        UserDefaults.standard.set(
-            region == .unitedStates ? normalizedVenmo(venmo) : "",
-            forKey: venmoKey
-        )
-        UserDefaults.standard.set(
-            region == .india ? normalizedUPI(upi) : "",
-            forKey: upiKey
-        )
+        UserDefaults.standard.set(normalizedVenmo(venmo), forKey: venmoKey)
+        UserDefaults.standard.set(normalizedUPI(upi), forKey: upiKey)
+        if let aani {
+            UserDefaults.standard.set(normalizedAani(aani), forKey: aaniKey)
+        }
         UserDefaults.standard.set(true, forKey: syncPendingKey)
     }
 
@@ -279,25 +232,25 @@ enum PaymentPreferences {
         UserDefaults.standard.set(false, forKey: syncPendingKey)
     }
 
-    static func hydrate(region: AppRegion, venmo: String?, upi: String?) {
+    static func hydrate(region: AppRegion, venmo: String, upi: String, aani: String) {
         RegionManager.shared.select(region)
-        UserDefaults.standard.set(
-            region == .unitedStates ? normalizedVenmo(venmo ?? "") : "",
-            forKey: venmoKey
-        )
-        UserDefaults.standard.set(
-            region == .india ? normalizedUPI(upi ?? "") : "",
-            forKey: upiKey
-        )
-        markSynced()
+        UserDefaults.standard.set(normalizedVenmo(venmo), forKey: venmoKey)
+        UserDefaults.standard.set(normalizedUPI(upi), forKey: upiKey)
+        UserDefaults.standard.set(normalizedAani(aani), forKey: aaniKey)
+        UserDefaults.standard.set(false, forKey: syncPendingKey)
     }
+}
 
-    static func clear() {
-        UserDefaults.standard.removeObject(forKey: venmoKey)
-        UserDefaults.standard.removeObject(forKey: upiKey)
-        UserDefaults.standard.removeObject(forKey: syncPendingKey)
-        UserDefaults.standard.removeObject(forKey: "selectedRegion")
-        UserDefaults.standard.removeObject(forKey: "selectedCurrency")
+enum AgePreferences {
+    static let key = "profile.ageBand"
+
+    static var ageBand: AgeBand? {
+        get {
+            UserDefaults.standard.string(forKey: key).flatMap(AgeBand.init(rawValue:))
+        }
+        set {
+            UserDefaults.standard.set(newValue?.rawValue, forKey: key)
+        }
     }
 }
 

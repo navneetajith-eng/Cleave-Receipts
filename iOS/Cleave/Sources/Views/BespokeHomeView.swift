@@ -6,14 +6,13 @@ struct BespokeHomeView: View {
     @EnvironmentObject var store: AppStore
 
     @State private var showingNewGroupSheet = false
-    @State private var isPulsing = false
 
     @State private var showingRenameAlert = false
     @State private var groupToRename: UUID? = nil
     @State private var renameText = ""
 
-    @State private var showingDeleteAlert = false
-    @State private var groupToDelete: UUID? = nil
+    @State private var showingLeaveAlert = false
+    @State private var groupToLeave: UUID? = nil
 
     // Auth State
     @ObservedObject private var supabaseManager = SupabaseManager.shared
@@ -29,6 +28,7 @@ struct BespokeHomeView: View {
     var body: some View {
         ZStack {
             FluidBackground()
+                .ignoresSafeArea()
 
             VStack(alignment: .leading, spacing: 10) {
 
@@ -85,16 +85,18 @@ struct BespokeHomeView: View {
                                     }
                                     .buttonStyle(PressScaleButtonStyle())
                                     .contextMenu {
-                                        Button {
-                                            groupToRename = group.id
-                                            renameText = group.name
-                                            showingRenameAlert = true
-                                        } label: { Label("Rename", systemImage: "pencil") }
+                                        if !group.isCollaborative || group.createdBy == supabaseManager.currentUser?.id {
+                                            Button {
+                                                groupToRename = group.id
+                                                renameText = group.name
+                                                showingRenameAlert = true
+                                            } label: { Label("Rename", systemImage: "pencil") }
+                                        }
 
                                         Button(role: .destructive) {
-                                            groupToDelete = group.id
-                                            showingDeleteAlert = true
-                                        } label: { Label("Delete", systemImage: "trash") }
+                                            groupToLeave = group.id
+                                            showingLeaveAlert = true
+                                        } label: { Label("Leave group", systemImage: "rectangle.portrait.and.arrow.right") }
                                     }
                                 }
                             }
@@ -120,104 +122,33 @@ struct BespokeHomeView: View {
                                     }
                                     .buttonStyle(PressScaleButtonStyle())
                                     .contextMenu {
-                                        Button {
-                                            groupToRename = group.id
-                                            renameText = group.name
-                                            showingRenameAlert = true
-                                        } label: { Label("Rename", systemImage: "pencil") }
+                                        if !group.isCollaborative || group.createdBy == supabaseManager.currentUser?.id {
+                                            Button {
+                                                groupToRename = group.id
+                                                renameText = group.name
+                                                showingRenameAlert = true
+                                            } label: { Label("Rename", systemImage: "pencil") }
+                                        }
 
                                         Button(role: .destructive) {
-                                            groupToDelete = group.id
-                                            showingDeleteAlert = true
-                                        } label: { Label("Delete", systemImage: "trash") }
+                                            groupToLeave = group.id
+                                            showingLeaveAlert = true
+                                        } label: { Label("Leave group", systemImage: "rectangle.portrait.and.arrow.right") }
                                     }
                                 }
                             }
                             .padding(.top, 40) // The primary stagger offset for the entire column
                         }
                         .padding(.horizontal, 20)
-                        .padding(.bottom, 120)
+                        .padding(.bottom, 150)
                     }
                 }
 
                 Spacer()
             }
-            .overlay(
-                VStack {
-                    Spacer()
-                    HStack {
-                        Button(action: {
-                            showingInboxSheet = true
-                        }) {
-                            Image(systemName: "tray.fill")
-                                .font(.system(size: 20, weight: .bold))
-                                .foregroundColor(.white)
-                                .frame(width: 54, height: 54)
-                                .background(
-                                    Circle()
-                                        .fill(Color.black.opacity(0.85))
-                                        .shadow(color: Color.black.opacity(0.2), radius: 10, x: 0, y: 5)
-                                )
-                                .overlay(alignment: .topTrailing) {
-                                    let unreadCount = inboxItems.filter { !$0.isRead }.count
-                                    if unreadCount > 0 {
-                                        Text(unreadCount > 99 ? "99+" : "\(unreadCount)")
-                                            .font(DesignSystem.labelFont(10))
-                                            .foregroundColor(.white)
-                                            .padding(.horizontal, 6)
-                                            .frame(minWidth: 20, minHeight: 20)
-                                            .background(DesignSystem.accentOrange)
-                                            .clipShape(Capsule())
-                                            .offset(x: 5, y: -5)
-                                    }
-                                }
-                        }
-                        .buttonStyle(PressScaleButtonStyle())
-                        .accessibilityLabel("Inbox")
-
-                        Spacer()
-
-                        Button(action: {
-                            showingNewGroupSheet = true
-                        }) {
-                            Image(systemName: "plus")
-                                .font(.system(size: 24, weight: .bold))
-                                .foregroundColor(.white)
-                                .frame(width: 54, height: 54)
-                                .background(
-                                    Circle()
-                                        .fill(Color.black.opacity(0.85))
-                                        .shadow(color: Color.black.opacity(0.2), radius: 10, x: 0, y: 5)
-                                )
-                        }
-                        .buttonStyle(PressScaleButtonStyle())
-
-                        Spacer()
-
-                        Button(action: {
-                            showingSettingsSheet = true
-                        }) {
-                            Image(systemName: "gearshape.fill")
-                                .font(.system(size: 20, weight: .bold))
-                                .foregroundColor(.white)
-                                .frame(width: 54, height: 54)
-                                .background(
-                                    Circle()
-                                        .fill(Color.black.opacity(0.85))
-                                        .shadow(color: Color.black.opacity(0.2), radius: 10, x: 0, y: 5)
-                                )
-                        }
-                        .buttonStyle(PressScaleButtonStyle())
-                    }
-                    .padding(.horizontal, 20)
-                    .padding(.bottom, 30)
-                    .onAppear {
-                        withAnimation(.easeInOut(duration: 2.0).repeatForever(autoreverses: true)) {
-                            isPulsing = true
-                        }
-                    }
-                }
-            )
+            .overlay(alignment: .bottom) {
+                bottomToolbar
+            }
 
             // Old notification overlay removed
 
@@ -244,6 +175,7 @@ struct BespokeHomeView: View {
                 }
             }
         }
+        .ignoresSafeArea(.container, edges: .bottom)
         .sheet(isPresented: $showingNewGroupSheet) {
             NewGroupSheetView(isPresented: $showingNewGroupSheet)
                 .presentationDragIndicator(.hidden)
@@ -297,15 +229,15 @@ struct BespokeHomeView: View {
                 }
             }
         }
-        .alert("Delete Group", isPresented: $showingDeleteAlert, presenting: groupToDelete) { id in
-            Button("Delete", role: .destructive) {
+        .alert("Leave Group?", isPresented: $showingLeaveAlert, presenting: groupToLeave) { id in
+            Button("Leave", role: .destructive) {
                 if let group = store.getGroup(id: id), !group.isCollaborative {
                     withAnimation { store.deleteGroup(id: id) }
                     return
                 }
                 Task {
                     do {
-                        try await CleaveAPI.shared.deleteGroup(id: id)
+                        try await CleaveAPI.shared.leaveGroup(id: id)
                         await MainActor.run {
                             withAnimation { store.deleteGroup(id: id) }
                         }
@@ -316,17 +248,22 @@ struct BespokeHomeView: View {
             }
             Button("Cancel", role: .cancel) {}
         } message: { _ in
-            Text("Are you sure you want to delete this group? This action cannot be undone.")
+            Text("The group and its receipts stay available to everyone else. You will lose access unless another member adds you again.")
         }
         .task { await refreshInbox() }
     }
 
     private var headerView: some View {
         HStack {
-            VStack(alignment: .leading, spacing: 4) {
+            HStack(spacing: 10) {
+                Image("AppLogo")
+                    .resizable()
+                    .scaledToFit()
+                    .frame(width: 42, height: 42)
+                    .clipShape(RoundedRectangle(cornerRadius: 11, style: .continuous))
                 Text("CLEAVE")
-                    .font(.custom("AvenirNext-Heavy", size: 26))
-                    .tracking(6)
+                    .font(.custom("AvenirNext-Heavy", size: 24))
+                    .tracking(4.5)
                     .foregroundColor(Color.black.opacity(0.85))
             }
 
@@ -372,6 +309,54 @@ struct BespokeHomeView: View {
         }
         .padding(.horizontal, 20)
         .padding(.top, 60)
+    }
+
+    private var bottomToolbar: some View {
+        HStack {
+            toolbarButton(systemName: "tray.fill", label: "Inbox", action: { showingInboxSheet = true })
+                .overlay(alignment: .topTrailing) {
+                    let unreadCount = inboxItems.filter { !$0.isRead }.count
+                    if unreadCount > 0 {
+                        Text(unreadCount > 99 ? "99+" : "\(unreadCount)")
+                            .font(DesignSystem.labelFont(8))
+                            .foregroundStyle(.white)
+                            .padding(.horizontal, 5)
+                            .frame(minWidth: 18, minHeight: 18)
+                            .background(DesignSystem.accentOrange, in: Capsule())
+                            .offset(x: 4, y: -3)
+                    }
+                }
+
+            Spacer()
+            toolbarButton(systemName: "plus", label: "New group", prominent: true, action: { showingNewGroupSheet = true })
+            Spacer()
+            toolbarButton(systemName: "gearshape.fill", label: "Settings", action: { showingSettingsSheet = true })
+        }
+        .padding(.horizontal, 22)
+        .padding(.vertical, 10)
+        .background(.ultraThinMaterial, in: Capsule())
+        .overlay(Capsule().stroke(.white.opacity(0.52), lineWidth: 0.7))
+        .shadow(color: DesignSystem.accentNavy.opacity(0.12), radius: 16, y: 6)
+        .padding(.horizontal, 18)
+        .padding(.bottom, 34)
+    }
+
+    private func toolbarButton(
+        systemName: String,
+        label: String,
+        prominent: Bool = false,
+        action: @escaping () -> Void
+    ) -> some View {
+        Button(action: action) {
+            Image(systemName: systemName)
+                .font(.system(size: prominent ? 22 : 18, weight: .bold))
+                .foregroundStyle(.white)
+                .frame(width: prominent ? 52 : 46, height: prominent ? 52 : 46)
+                .background(prominent ? DesignSystem.accentOrange : Color.black, in: Circle())
+                .shadow(color: DesignSystem.accentNavy.opacity(prominent ? 0.18 : 0.1), radius: 8, y: 3)
+        }
+        .buttonStyle(PressScaleButtonStyle())
+        .accessibilityLabel(label)
     }
 
     @MainActor

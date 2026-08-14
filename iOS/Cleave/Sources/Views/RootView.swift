@@ -4,8 +4,9 @@ enum AppState: Equatable {
     case home
     case groupDetail(group: UUID)
     case capture(group: UUID)
-    case assignment(receiptId: String, group: UUID, title: String, items: [ReceiptItem], assignments: [String: Set<String>], tax: Double, tip: Double, discount: Double, currency: Currency)
-    case balances(receiptId: String, group: UUID, title: String, items: [ReceiptItem], assignments: [String: Set<String>], tax: Double, tip: Double, discount: Double, currency: Currency)
+    case receiptReview(receipt: RemoteReceipt, group: UUID)
+    case assignment(receiptId: String, group: UUID, title: String, items: [ReceiptItem], assignments: [String: Set<String>], tax: Double, tip: Double, discount: Double, currency: Currency, viewerIsAdmin: Bool, adminOverrideMode: Bool)
+    case balances(receiptId: String, group: UUID, title: String, items: [ReceiptItem], assignments: [String: Set<String>], tax: Double, tip: Double, discount: Double, currency: Currency, viewerIsAdmin: Bool, initialReview: ReceiptReview?)
 
     // Custom equality to satisfy Equatable for complex associated values
     static func == (lhs: AppState, rhs: AppState) -> Bool {
@@ -13,8 +14,9 @@ enum AppState: Equatable {
         case (.home, .home): return true
         case (.groupDetail(let a), .groupDetail(let b)): return a == b
         case (.capture(let a), .capture(let b)): return a == b
-        case (.assignment(let r1, let a, let t1, _, _, _, _, _, let c1), .assignment(let r2, let b, let t2, _, _, _, _, _, let c2)): return r1 == r2 && a == b && t1 == t2 && c1 == c2
-        case (.balances(let r1, let g1, let t1, _, _, _, _, _, let c1), .balances(let r2, let g2, let t2, _, _, _, _, _, let c2)): return r1 == r2 && g1 == g2 && t1 == t2 && c1 == c2
+        case (.receiptReview(let a, let g1), .receiptReview(let b, let g2)): return a.id == b.id && g1 == g2
+        case (.assignment(let r1, let a, let t1, _, _, _, _, _, _, _, _), .assignment(let r2, let b, let t2, _, _, _, _, _, _, _, _)): return r1 == r2 && a == b && t1 == t2
+        case (.balances(let r1, let g1, let t1, _, _, _, _, _, _, _, _), .balances(let r2, let g2, let t2, _, _, _, _, _, _, _, _)): return r1 == r2 && g1 == g2 && t1 == t2
         default: return false
         }
     }
@@ -34,8 +36,15 @@ enum LaunchFlow {
         hasCheckedSession: Bool,
         hasUser: Bool,
         isSupabaseConfigured: Bool,
-        isDemoMode: Bool = false
+        isDemoMode: Bool = false,
+        isReplayingOnboarding: Bool = false
     ) -> LaunchDestination {
+        if isReplayingOnboarding {
+            if !isDemoMode && isSupabaseConfigured && !hasCheckedSession {
+                return .sessionLoading
+            }
+            return .onboarding
+        }
         if !hasSeenOnboarding { return .onboarding }
         if isDemoMode { return .app }
         if !isSupabaseConfigured { return .configurationRequired }
@@ -51,6 +60,7 @@ struct RootView: View {
     @Namespace private var namespace
 
     @AppStorage("onboardingVersion") private var onboardingVersion = 0
+    @AppStorage("onboardingReplayRequested") private var onboardingReplayRequested = false
     @AppStorage(DemoMode.defaultsKey) private var demoModeEnabled = false
 
     private var isDemoMode: Bool {
@@ -67,7 +77,8 @@ struct RootView: View {
             hasCheckedSession: session.hasCheckedSession,
             hasUser: session.currentUser != nil,
             isSupabaseConfigured: AppConfiguration.isSupabaseConfigured,
-            isDemoMode: isDemoMode
+            isDemoMode: isDemoMode,
+            isReplayingOnboarding: onboardingReplayRequested
         )
     }
 
@@ -75,9 +86,7 @@ struct RootView: View {
         Group {
             switch launchDestination {
             case .onboarding:
-                OnboardingView {
-                    onboardingVersion = OnboardingVersion.current
-                }
+                OnboardingView(isReplay: onboardingReplayRequested, onComplete: finishOnboarding)
             case .sessionLoading:
                 ZStack {
                     FluidBackground().ignoresSafeArea()
@@ -100,12 +109,16 @@ struct RootView: View {
                         BespokeCaptureView(groupId: group, appState: $appState, namespace: namespace)
                             .transition(.opacity.combined(with: .scale(scale: 0.95)))
                             .zIndex(10)
-                    case .assignment(let receiptId, let group, let title, let items, let assignments, let tax, let tip, let discount, let currency):
-                        BespokeAssignmentView(receiptId: receiptId, groupId: group, appState: $appState, namespace: namespace, initialTitle: title, initialItems: items, initialAssignments: assignments, initialTax: tax, initialTip: tip, initialDiscount: discount, currency: currency)
+                    case .receiptReview(let receipt, let group):
+                        ReceiptReviewView(receipt: receipt, groupId: group, appState: $appState)
+                            .transition(.opacity.combined(with: .move(edge: .trailing)))
+                            .zIndex(10)
+                    case .assignment(let receiptId, let group, let title, let items, let assignments, let tax, let tip, let discount, let currency, let viewerIsAdmin, let adminOverrideMode):
+                        BespokeAssignmentView(receiptId: receiptId, groupId: group, appState: $appState, namespace: namespace, initialTitle: title, initialItems: items, initialAssignments: assignments, initialTax: tax, initialTip: tip, initialDiscount: discount, currency: currency, viewerIsAdmin: viewerIsAdmin, adminOverrideMode: adminOverrideMode)
                             .transition(.opacity.combined(with: .scale(scale: 0.95)))
                             .zIndex(10)
-                    case .balances(let receiptId, let group, let title, let items, let assignments, let tax, let tip, let discount, let currency):
-                        BespokeBalancesView(receiptId: receiptId, groupId: group, title: title, items: items, assignments: assignments, tax: tax, tip: tip, discount: discount, currency: currency, appState: $appState, namespace: namespace)
+                    case .balances(let receiptId, let group, let title, let items, let assignments, let tax, let tip, let discount, let currency, let viewerIsAdmin, let initialReview):
+                        BespokeBalancesView(receiptId: receiptId, groupId: group, title: title, items: items, assignments: assignments, tax: tax, tip: tip, discount: discount, currency: currency, viewerIsAdmin: viewerIsAdmin, initialReview: initialReview, appState: $appState, namespace: namespace)
                             .transition(.opacity.combined(with: .scale(scale: 0.95)))
                             .zIndex(10)
                     }
@@ -136,17 +149,6 @@ struct RootView: View {
                 }
             }
         }
-        .fullScreenCover(
-            isPresented: Binding(
-                get: { session.isPasswordRecovery },
-                set: { isPresented in
-                    guard !isPresented, session.isPasswordRecovery else { return }
-                    Task { await session.cancelPasswordRecovery() }
-                }
-            )
-        ) {
-            PasswordUpdateView()
-        }
         .onChange(of: demoModeEnabled) { _, enabled in
             appState = .home
             if enabled {
@@ -172,17 +174,21 @@ struct RootView: View {
         #endif
     }
 
-    private func syncPaymentPreferencesIfReady() async {
-        if let profile = try? await CleaveAPI.shared.fetchCurrentProfile(),
-           let regionCode = profile.regionCode,
-           let remoteRegion = AppRegion(rawValue: regionCode) {
-            PaymentPreferences.hydrate(
-                region: remoteRegion,
-                venmo: profile.venmoUsername,
-                upi: profile.upiId
-            )
-            return
+    private func finishOnboarding() {
+        let wasReplay = onboardingReplayRequested
+        onboardingVersion = OnboardingVersion.current
+        onboardingReplayRequested = false
+        guard !wasReplay else { return }
+        guard session.currentUser != nil else { return }
+        Task {
+            if let ageBand = AgePreferences.ageBand {
+                _ = try? await CleaveAPI.shared.updateProfile(ageBand: ageBand)
+            }
+            await syncPaymentPreferencesIfReady()
         }
+    }
+
+    private func syncPaymentPreferencesIfReady() async {
         let region = RegionManager.shared.currentRegion
         guard PaymentPreferences.needsSync,
               PaymentPreferences.isComplete(
@@ -194,7 +200,8 @@ struct RootView: View {
             _ = try await CleaveAPI.shared.updatePaymentDetails(
                 region: region,
                 venmoUsername: PaymentPreferences.venmoUsername,
-                upiID: PaymentPreferences.upiID
+                upiID: PaymentPreferences.upiID,
+                aaniID: PaymentPreferences.aaniID
             )
             PaymentPreferences.markSynced()
         } catch {

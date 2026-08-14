@@ -1,5 +1,5 @@
 import pytest
-from sqlalchemy import create_engine
+from sqlalchemy import create_engine, event
 from sqlalchemy.orm import sessionmaker
 from app.db.database import Base
 from app.models import domain
@@ -158,3 +158,49 @@ def test_calculate_balances_preserves_every_cent(db_session):
     assert round(sum(balance.tax_share for balance in balances), 2) == 0.01
     assert round(sum(balance.tip_share for balance in balances), 2) == 0.01
     assert round(sum(balance.total_owed for balance in balances), 2) == 10.02
+
+
+def test_balance_query_count_does_not_grow_with_item_count(db_session):
+    db_session.add(domain.Profile(id=USER_1, email="bounded@example.com", username="bounded"))
+    db_session.add(domain.Group(id=GROUP_1, name="Bounded", created_by=USER_1))
+    db_session.add(
+        domain.Receipt(
+            id=RECEIPT_1,
+            group_id=GROUP_1,
+            title="Many items",
+            admin_id=USER_1,
+            tax_amount=1,
+            tip_amount=1,
+            discount_amount=0,
+        )
+    )
+    for index in range(12):
+        item_id = f"00000000-0000-0000-0000-{index + 400:012d}"
+        db_session.add(
+            domain.ReceiptItem(
+                id=item_id,
+                receipt_id=RECEIPT_1,
+                name=f"Item {index}",
+                price=1,
+            )
+        )
+        db_session.add(domain.ReceiptAssignment(item_id=item_id, user_id=USER_1))
+    db_session.commit()
+    db_session.expire_all()
+
+    query_count = 0
+
+    def count_query(*_args):
+        nonlocal query_count
+        query_count += 1
+
+    event.listen(engine, "before_cursor_execute", count_query)
+    try:
+        balances = calculate_balances(db_session, RECEIPT_1)
+    finally:
+        event.remove(engine, "before_cursor_execute", count_query)
+
+    assert balances[0].items_total == 12
+    # Receipt totals, assignments, and confirmed settlements are fetched in a
+    # fixed number of queries regardless of the number of line items.
+    assert query_count <= 4

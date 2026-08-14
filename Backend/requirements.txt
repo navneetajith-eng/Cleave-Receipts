@@ -1,10 +1,10 @@
 fastapi==0.141.1
 google-cloud-storage==3.9.0
-google-genai>=1.0.0,<3.0.0
+google-genai==2.18.1
 httpx==0.28.1
 psycopg2-binary==2.9.12
 PyJWT[crypto]==2.13.0
-pytest==9.1.1
+pytest==9.0.3
 python-dotenv==1.2.2
 python-multipart==0.0.32
 slowapi==0.1.10

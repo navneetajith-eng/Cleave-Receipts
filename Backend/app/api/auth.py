@@ -63,6 +63,8 @@ def get_current_user(
 
         payload = jwt.decode(token, signing_key, **decode_options)
         uuid.UUID(payload["sub"])
+        if payload.get("is_anonymous") is True:
+            raise jwt.InvalidTokenError("Anonymous sessions are not supported")
     except RuntimeError as error:
         raise HTTPException(
             status_code=status.HTTP_503_SERVICE_UNAVAILABLE,

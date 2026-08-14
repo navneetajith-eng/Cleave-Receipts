@@ -13,6 +13,8 @@ struct BespokeAssignmentView: View {
     let initialTip: Double
     let initialDiscount: Double
     let currency: Currency
+    let viewerIsAdmin: Bool
+    let adminOverrideMode: Bool
 
     @EnvironmentObject var store: AppStore
 
@@ -29,7 +31,7 @@ struct BespokeAssignmentView: View {
         DesignSystem.accentPeach
     ]
 
-    init(receiptId: String, groupId: UUID, appState: Binding<AppState>, namespace: Namespace.ID, initialTitle: String, initialItems: [ReceiptItem], initialAssignments: [String: Set<String>] = [:], initialTax: Double, initialTip: Double, initialDiscount: Double, currency: Currency) {
+    init(receiptId: String, groupId: UUID, appState: Binding<AppState>, namespace: Namespace.ID, initialTitle: String, initialItems: [ReceiptItem], initialAssignments: [String: Set<String>] = [:], initialTax: Double, initialTip: Double, initialDiscount: Double, currency: Currency, viewerIsAdmin: Bool, adminOverrideMode: Bool) {
         self.receiptId = receiptId
         self.groupId = groupId
         self._appState = appState
@@ -41,6 +43,8 @@ struct BespokeAssignmentView: View {
         self.initialTip = initialTip
         self.initialDiscount = initialDiscount
         self.currency = currency
+        self.viewerIsAdmin = viewerIsAdmin
+        self.adminOverrideMode = adminOverrideMode
 
         self._title = State(initialValue: initialTitle)
         self._items = State(initialValue: initialItems)
@@ -54,18 +58,23 @@ struct BespokeAssignmentView: View {
     @State private var assignments: [String: Set<String>] = [:]
 
     // Editing State
-    enum EditTarget: Equatable { case item(Int), tax, tip }
+    enum EditTarget: Equatable { case item(Int), tax, tip, discount }
     @State private var editingTarget: EditTarget? = nil
     @State private var editName: String = ""
     @State private var editPrice: String = ""
 
     // Alert State
     @State private var showingUnassignedAlert = false
+    @State private var showingNothingSelectedAlert = false
     @State private var isSaving = false
 
     var groupMembers: [GroupMemberModel] {
         store.getGroup(id: groupId)?.members ?? []
     }
+
+    private var isCollaborative: Bool { store.getGroup(id: groupId)?.isCollaborative == true }
+    private var isSelfClaiming: Bool { isCollaborative && !adminOverrideMode }
+    private var currentUserID: String? { DemoMode.effectiveUserID?.uuidString }
 
 
     private var subtotal: Double {
@@ -77,7 +86,10 @@ struct BespokeAssignmentView: View {
     }
 
     private var assignedItemCount: Int {
-        items.filter { !(assignments[$0.id] ?? []).isEmpty }.count
+        if isSelfClaiming, let currentUserID {
+            return items.filter { (assignments[$0.id] ?? []).contains(currentUserID) }.count
+        }
+        return items.filter { !(assignments[$0.id] ?? []).isEmpty }.count
     }
 
     var body: some View {
@@ -93,7 +105,7 @@ struct BespokeAssignmentView: View {
                     }
                     Spacer()
 
-                    Text("\(assignedItemCount)/\(items.count) ASSIGNED")
+                    Text("\(assignedItemCount) SELECTED")
                         .font(DesignSystem.labelFont(10))
                         .tracking(1.2)
                         .foregroundStyle(assignedItemCount == items.count ? DesignSystem.accentTeal : DesignSystem.inkMuted)
@@ -106,7 +118,7 @@ struct BespokeAssignmentView: View {
                 .padding(.top, 58)
 
                 VStack(alignment: .leading, spacing: 6) {
-                    Text("SPLIT THIS RECEIPT")
+                    Text(isSelfClaiming ? "PICK YOUR ITEMS" : (adminOverrideMode ? "ADMIN OVERRIDE" : "SPLIT THIS RECEIPT"))
                         .font(DesignSystem.labelFont(10))
                         .tracking(1.8)
                         .foregroundStyle(DesignSystem.accentOrange)
@@ -121,13 +133,16 @@ struct BespokeAssignmentView: View {
                             .foregroundStyle(DesignSystem.ink)
                             .tint(DesignSystem.accentTeal)
                             .lineLimit(1)
+                            .disabled(isCollaborative && !viewerIsAdmin)
 
-                        Image(systemName: "pencil")
+                        if !isCollaborative || viewerIsAdmin {
+                            Image(systemName: "pencil")
                             .font(.system(size: 15, weight: .bold))
                             .foregroundStyle(DesignSystem.inkMuted)
+                        }
                     }
 
-                    Text("Tap everyone who shared each item.")
+                    Text(isSelfClaiming ? "Choose only what you had. Shared items can be picked by everyone who shared them." : (adminOverrideMode ? "Correct allocations only when the group needs help." : "Tap everyone who shared each item."))
                         .font(DesignSystem.bodyFont(14))
                         .foregroundStyle(DesignSystem.inkMuted)
                 }
@@ -145,6 +160,9 @@ struct BespokeAssignmentView: View {
 
                         nonAssignableRow(title: "Tax", value: tax, target: .tax)
                         nonAssignableRow(title: "Tip", value: tip, target: .tip)
+                        if discount > 0 || viewerIsAdmin || !isCollaborative {
+                            nonAssignableRow(title: "Discount", value: discount, target: .discount)
+                        }
 
                         VStack(spacing: 10) {
                             HStack {
@@ -152,7 +170,7 @@ struct BespokeAssignmentView: View {
                                     .font(DesignSystem.bodyFont(14))
                                     .foregroundColor(.white.opacity(0.8))
                                 Spacer()
-                                Text(CurrencyManager.format(subtotal, currency: currency))
+                                Text(CurrencyManager.shared.format(subtotal, currency: currency))
                                     .font(DesignSystem.bodyFont(14))
                                     .foregroundColor(.white.opacity(0.8))
                             }
@@ -162,7 +180,7 @@ struct BespokeAssignmentView: View {
                                     .font(DesignSystem.titleFont(19))
                                     .foregroundColor(.white)
                                 Spacer()
-                                Text(CurrencyManager.format(total, currency: currency))
+                                Text(CurrencyManager.shared.format(total, currency: currency))
                                     .font(DesignSystem.displayFont(20))
                                     .foregroundColor(.white)
                             }
@@ -187,7 +205,7 @@ struct BespokeAssignmentView: View {
                             ProgressView()
                                 .tint(.white)
                         }
-                        Text(isSaving ? "Saving…" : "See balances")
+                        Text(isSaving ? "Saving…" : (isSelfClaiming ? "Confirm my items" : (adminOverrideMode ? "Save corrections" : "See balances")))
                         if !isSaving {
                             Image(systemName: "arrow.right")
                                 .font(.system(size: 14, weight: .black))
@@ -226,7 +244,7 @@ struct BespokeAssignmentView: View {
                     }
 
                     HStack {
-                        Text(CurrencyManager.shared.currentCurrency.symbol)
+                        Text(currency.symbol)
                             .font(DesignSystem.labelFont(12))
                             .foregroundColor(.white.opacity(0.7))
                         TextField("Amount", text: $editPrice, prompt: Text("Amount").foregroundStyle(.white.opacity(0.48)))
@@ -282,12 +300,22 @@ struct BespokeAssignmentView: View {
         } message: {
             Text("There are items with no assigned members. Would you like to split them equally among everyone?")
         }
+        .alert("Nothing for you?", isPresented: $showingNothingSelectedAlert) {
+            Button("Confirm nothing for me") { Task { await saveAndProceed() } }
+            Button("Keep choosing", role: .cancel) { }
+        } message: {
+            Text("You will be marked as finished with a zero share. You can reopen the receipt and change this later until a payment is confirmed.")
+        }
     }
 
     private func receiptItemRow(index: Int) -> some View {
         let itemId = items[index].id
         let assignedMembers = assignments[itemId] ?? []
         let isAssigned = !assignedMembers.isEmpty
+        let otherClaimants = groupMembers.filter { member in
+            assignedMembers.contains(member.id.uuidString)
+                && member.id.uuidString != currentUserID
+        }
 
         return VStack(spacing: 16) {
             HStack {
@@ -298,22 +326,85 @@ struct BespokeAssignmentView: View {
                 Spacer()
 
                 HStack(spacing: 8) {
-                    Text(CurrencyManager.format(items[index].price, currency: currency))
+                    Text(CurrencyManager.shared.format(items[index].price, currency: currency))
                         .font(DesignSystem.titleFont(15))
                         .foregroundColor(.white.opacity(0.9))
 
-                    Button(action: {
+                    if !isCollaborative || viewerIsAdmin {
+                        Button(action: {
                         openEditModal(for: .item(index))
-                    }) {
+                        }) {
                         Image(systemName: "pencil.circle.fill")
                             .foregroundColor(.white.opacity(0.8))
                             .font(.system(size: 20))
+                        }
                     }
                 }
             }
 
-            // Inline Member Selectors
-            ScrollView(.horizontal, showsIndicators: false) {
+            if isSelfClaiming, let currentUserID {
+                let isSelected = assignedMembers.contains(currentUserID)
+
+                if !otherClaimants.isEmpty {
+                    VStack(alignment: .leading, spacing: 8) {
+                        Label(
+                            isSelected ? "You’re sharing this with" : "Already picked by",
+                            systemImage: "person.2.fill"
+                        )
+                        .font(DesignSystem.labelFont(9))
+                        .tracking(0.8)
+                        .foregroundStyle(.white.opacity(0.68))
+
+                        ScrollView(.horizontal, showsIndicators: false) {
+                            HStack(spacing: 7) {
+                                ForEach(otherClaimants) { member in
+                                    HStack(spacing: 6) {
+                                        Text(String(member.preferredName.prefix(1)).uppercased())
+                                            .font(DesignSystem.labelFont(9))
+                                            .frame(width: 22, height: 22)
+                                            .background(DesignSystem.accentOrange.opacity(0.18))
+                                            .clipShape(Circle())
+                                        Text(member.preferredName)
+                                            .font(DesignSystem.titleFont(12))
+                                    }
+                                    .foregroundStyle(.white)
+                                    .padding(.leading, 5)
+                                    .padding(.trailing, 10)
+                                    .frame(height: 32)
+                                    .background(Color.white.opacity(0.11))
+                                    .clipShape(Capsule())
+                                }
+                            }
+                        }
+                    }
+                    .frame(maxWidth: .infinity, alignment: .leading)
+                }
+
+                Button {
+                    HapticsManager.shared.playImpact(style: .medium)
+                    withAnimation(.spring(response: 0.35, dampingFraction: 0.7)) {
+                        if isSelected {
+                            assignments[itemId]?.remove(currentUserID)
+                        } else {
+                            assignments[itemId, default: []].insert(currentUserID)
+                        }
+                    }
+                } label: {
+                    HStack(spacing: 10) {
+                        Image(systemName: isSelected ? "checkmark.circle.fill" : "circle")
+                        Text(isSelected ? "This was mine" : "Choose this item")
+                        Spacer()
+                    }
+                    .font(DesignSystem.titleFont(14))
+                    .foregroundStyle(isSelected ? DesignSystem.accentNavy : .white)
+                    .padding(.horizontal, 15)
+                    .frame(height: 46)
+                    .background(isSelected ? Color.white : Color.white.opacity(0.1))
+                    .clipShape(RoundedRectangle(cornerRadius: 14, style: .continuous))
+                }
+                .buttonStyle(PressScaleButtonStyle())
+            } else {
+                ScrollView(.horizontal, showsIndicators: false) {
                 HStack(spacing: 9) {
                     ForEach(Array(groupMembers.enumerated()), id: \.element.id) { _, member in
                         let memberID = member.id.uuidString
@@ -337,12 +428,12 @@ struct BespokeAssignmentView: View {
                             }
                         }) {
                             HStack(spacing: 7) {
-                                Text(String(member.displayName.prefix(1)))
+                                Text(String(member.preferredName.prefix(1)))
                                     .font(DesignSystem.labelFont(11))
                                     .frame(width: 26, height: 26)
                                     .background(isSelected ? fgColor.opacity(0.12) : Color.white.opacity(0.13))
                                     .clipShape(Circle())
-                                Text(member.displayName)
+                                Text(member.preferredName)
                                     .font(DesignSystem.titleFont(13))
                                     .lineLimit(1)
                             }
@@ -362,6 +453,7 @@ struct BespokeAssignmentView: View {
                 }
                 .padding(.horizontal, 4) // Prevent clipping of the first scaled/stroked element
                 .padding(.vertical, 8) // Give breathing room for shadow
+                }
             }
         }
         .padding(17)
@@ -382,16 +474,18 @@ struct BespokeAssignmentView: View {
                 .foregroundColor(.white)
             Spacer()
             HStack(spacing: 8) {
-                Text(CurrencyManager.format(value, currency: currency))
+                Text(CurrencyManager.shared.format(value, currency: currency))
                     .font(DesignSystem.titleFont(15))
                     .foregroundColor(.white.opacity(0.9))
 
-                Button(action: {
-                    openEditModal(for: target)
-                }) {
-                    Image(systemName: "pencil.circle.fill")
-                        .foregroundColor(.white.opacity(0.8))
-                        .font(.system(size: 20))
+                if !isCollaborative || viewerIsAdmin {
+                    Button(action: {
+                        openEditModal(for: target)
+                    }) {
+                        Image(systemName: "pencil.circle.fill")
+                            .foregroundColor(.white.opacity(0.8))
+                            .font(.system(size: 20))
+                    }
                 }
             }
         }
@@ -405,6 +499,7 @@ struct BespokeAssignmentView: View {
         case .item(_): return "Edit Item"
         case .tax: return "Edit Tax"
         case .tip: return "Edit Tip"
+        case .discount: return "Edit Discount"
         case .none: return ""
         }
     }
@@ -419,6 +514,8 @@ struct BespokeAssignmentView: View {
             editPrice = String(format: "%.2f", tax)
         case .tip:
             editPrice = String(format: "%.2f", tip)
+        case .discount:
+            editPrice = String(format: "%.2f", discount)
         }
         withAnimation { }
     }
@@ -432,11 +529,21 @@ struct BespokeAssignmentView: View {
             tax = amount
         case .tip:
             tip = amount
+        case .discount:
+            discount = amount
         case .none: break
         }
     }
 
     private func handleCalculateBalances() {
+        if isSelfClaiming {
+            if assignedItemCount == 0 {
+                showingNothingSelectedAlert = true
+            } else {
+                Task { await saveAndProceed() }
+            }
+            return
+        }
         let unassignedExists = items.contains { item in
             let members = assignments[item.id] ?? []
             return members.isEmpty
@@ -463,7 +570,7 @@ struct BespokeAssignmentView: View {
 
     private func proceedToBalances() {
         withAnimation(.spring(response: 0.6, dampingFraction: 0.8)) {
-            appState = .balances(receiptId: receiptId, group: groupId, title: title, items: items, assignments: assignments, tax: tax, tip: tip, discount: discount, currency: currency)
+            appState = .balances(receiptId: receiptId, group: groupId, title: title, items: items, assignments: assignments, tax: tax, tip: tip, discount: discount, currency: currency, viewerIsAdmin: viewerIsAdmin, initialReview: nil)
         }
     }
 
@@ -486,24 +593,65 @@ struct BespokeAssignmentView: View {
             return
         }
         do {
-            _ = try await CleaveAPI.shared.updateReceipt(
-                receiptID: receiptId,
-                title: title,
-                items: items,
-                tax: tax,
-                tip: tip,
-                discount: discount
-            )
+            if isSelfClaiming {
+                guard let currentUserID else { return }
+                let selectedItemIDs = items.compactMap { item in
+                    (assignments[item.id] ?? []).contains(currentUserID) ? item.id : nil
+                }
+                let review = try await CleaveAPI.shared.submitReceiptClaim(
+                    receiptID: receiptId,
+                    itemIDs: selectedItemIDs,
+                    editedTitle: viewerIsAdmin ? title : nil,
+                    editedItems: viewerIsAdmin ? items : nil,
+                    tax: viewerIsAdmin ? tax : nil,
+                    tip: viewerIsAdmin ? tip : nil,
+                    discount: viewerIsAdmin ? discount : nil
+                    , currency: viewerIsAdmin ? currency : nil
+                )
+                let updated = review.receipt
+                withAnimation(.spring(response: 0.6, dampingFraction: 0.8)) {
+                    appState = .balances(
+                        receiptId: receiptId,
+                        group: groupId,
+                        title: updated.title,
+                        items: updated.items,
+                        assignments: updated.assignmentMap,
+                        tax: updated.taxAmount,
+                        tip: updated.tipAmount,
+                        discount: updated.discountAmount,
+                        currency: updated.currency,
+                        viewerIsAdmin: review.viewerIsAdmin,
+                        initialReview: review
+                    )
+                }
+                return
+            }
             let completeAssignments = Dictionary(
                 uniqueKeysWithValues: items.map { item in
                     (item.id, assignments[item.id] ?? [])
                 }
             )
-            try await CleaveAPI.shared.assignItems(
+            let updatedReceipt = try await CleaveAPI.shared.saveAdminReceiptReview(
                 receiptID: receiptId,
-                assignments: completeAssignments
+                title: title,
+                items: items,
+                assignments: completeAssignments,
+                tax: tax,
+                tip: tip,
+                discount: discount
+                , currency: currency
             )
-            proceedToBalances()
+            if adminOverrideMode {
+                withAnimation(.spring(response: 0.6, dampingFraction: 0.8)) {
+                    appState = .receiptReview(receipt: updatedReceipt, group: groupId)
+                }
+            } else {
+                proceedToBalances()
+            }
+        } catch is CancellationError {
+            return
+        } catch let error as URLError where error.code == .cancelled {
+            return
         } catch {
             ErrorManager.shared.showError(error.localizedDescription)
         }

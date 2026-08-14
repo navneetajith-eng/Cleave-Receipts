@@ -46,7 +46,7 @@ struct SupabaseConfigurationRequiredView: View {
                 if let onEnterDemo {
                     Button(action: onEnterDemo) {
                         Label("Explore with demo data", systemImage: "flask.fill")
-                            .font(.system(size: 17, weight: .semibold, design: .serif))
+                            .font(DesignSystem.titleFont(17))
                             .foregroundStyle(.white)
                             .frame(maxWidth: .infinity)
                             .padding(.vertical, 16)
@@ -71,162 +71,122 @@ struct AuthView: View {
     @State private var isSignUp = false
     @State private var isLoading = false
     @State private var errorMessage: String? = nil
-    @State private var showingPasswordReset = false
 
     var body: some View {
         ZStack {
-            // Premium background
             DesignSystem.canvasBeige.ignoresSafeArea()
 
-            // Subtle ambient glows
-            Circle()
-                .fill(DesignSystem.accentNavy.opacity(0.15))
-                .blur(radius: 100)
-                .frame(width: 300, height: 300)
-                .offset(x: -100, y: -200)
+            CleaveAuthReceiptMotif(color: DesignSystem.cardOrange)
+                .frame(width: 94, height: 126)
+                .rotationEffect(.degrees(12))
+                .offset(x: 174, y: -330)
+                .opacity(0.82)
 
-            Circle()
-                .fill(DesignSystem.accentSand.opacity(0.1))
-                .blur(radius: 100)
-                .frame(width: 300, height: 300)
-                .offset(x: 100, y: 200)
+            CleaveAuthReceiptMotif(color: DesignSystem.cardTeal)
+                .frame(width: 82, height: 110)
+                .rotationEffect(.degrees(-12))
+                .offset(x: -178, y: 330)
+                .opacity(0.72)
 
-            VStack(spacing: 30) {
-                // Header
-                VStack(spacing: 16) {
-                    Image("AppLogo")
-                        .resizable()
-                        .scaledToFit()
-                        .frame(width: 80, height: 80)
-                        .shadow(color: Color.black.opacity(0.1), radius: 10, x: 0, y: 5)
+            ScrollView(showsIndicators: false) {
+                VStack(spacing: 24) {
+                    CleaveAuthBrandMark()
+                        .padding(.top, 52)
 
-                    Text(isSignUp ? "Create Account" : "Welcome Back")
-                        .font(.system(size: 36, weight: .light, design: .serif))
-                        .foregroundColor(.black)
-
-                    Text(isSignUp ? "Join to create collaborative groups." : "Sign in to sync your groups.")
-                        .font(.subheadline)
-                        .foregroundColor(.black.opacity(0.6))
-                }
-                .padding(.bottom, 20)
-
-                // Form Fields
-                VStack(spacing: 16) {
-                    TextField(
-                        "Email",
-                        text: $email,
-                        prompt: Text("Email").foregroundStyle(Color.black.opacity(0.34))
-                    )
-                        .font(.system(size: 18))
-                        .foregroundColor(.black)
-                        .tint(DesignSystem.accentTeal)
-                        .padding()
-                        .background(Color.black.opacity(0.05))
-                        .cornerRadius(16)
-                        .overlay(
-                            RoundedRectangle(cornerRadius: 16)
-                                .stroke(Color.black.opacity(0.1), lineWidth: 1)
-                        )
-                        .autocapitalization(.none)
-                        .keyboardType(.emailAddress)
-
-                    SecureField(
-                        "Password",
-                        text: $password,
-                        prompt: Text("Password").foregroundStyle(Color.black.opacity(0.34))
-                    )
-                        .font(.system(size: 18))
-                        .foregroundColor(.black)
-                        .tint(DesignSystem.accentTeal)
-                        .padding()
-                        .background(Color.black.opacity(0.05))
-                        .cornerRadius(16)
-                        .overlay(
-                            RoundedRectangle(cornerRadius: 16)
-                                .stroke(Color.black.opacity(0.1), lineWidth: 1)
-                        )
-                }
-                .padding(.horizontal, 30)
-
-                if !isSignUp {
-                    Button("Forgot password?") {
-                        showingPasswordReset = true
+                    VStack(spacing: 8) {
+                        Text(isSignUp ? "JOIN CLEAVE" : "WELCOME BACK")
+                            .font(DesignSystem.labelFont(11))
+                            .tracking(2)
+                            .foregroundStyle(DesignSystem.accentOrange)
+                        Text(isSignUp ? "Create your account." : "Pick up where you left off.")
+                            .font(DesignSystem.displayFont(34))
+                            .foregroundStyle(DesignSystem.ink)
+                            .multilineTextAlignment(.center)
+                        Text(isSignUp ? "Make a group, scan once, settle clearly." : "Your groups and receipts will sync after sign in.")
+                            .font(DesignSystem.bodyFont(15))
+                            .foregroundStyle(DesignSystem.inkMuted)
+                            .multilineTextAlignment(.center)
                     }
-                    .font(.system(size: 14, weight: .semibold, design: .rounded))
-                    .foregroundColor(DesignSystem.accentNavy)
-                    .frame(maxWidth: .infinity, alignment: .trailing)
-                    .padding(.horizontal, 30)
-                    .accessibilityHint("Sends a secure password recovery link to your email")
-                }
 
-                if let error = errorMessage {
-                    Text(error)
-                        .font(.caption)
-                        .foregroundColor(DesignSystem.accentTeal)
-                        .multilineTextAlignment(.center)
-                        .padding(.horizontal, 30)
-                }
-
-                // Submit Button
-                Button(action: {
-                    Task {
-                        await authenticate()
-                    }
-                }) {
-                    ZStack {
-                        if isLoading {
-                            ProgressView()
-                                .progressViewStyle(CircularProgressViewStyle(tint: .black))
-                        } else {
-                            Text(isSignUp ? "Sign Up" : "Sign In")
-                                .font(.system(size: 18, weight: .semibold, design: .rounded))
+                    VStack(spacing: 14) {
+                        authField(icon: "envelope.fill", title: "Email") {
+                            TextField(
+                                "Email",
+                                text: $email,
+                                prompt: Text("you@example.com").foregroundStyle(DesignSystem.ink.opacity(0.34))
+                            )
+                            .textInputAutocapitalization(.never)
+                            .keyboardType(.emailAddress)
+                            .textContentType(.emailAddress)
                         }
-                    }
-                    .foregroundColor(.white)
-                    .frame(maxWidth: .infinity)
-                    .padding()
-                    .background(DesignSystem.accentNavy)
-                    .cornerRadius(16)
-                    .shadow(color: Color.black.opacity(0.2), radius: 15, x: 0, y: 5)
-                }
-                .padding(.horizontal, 30)
-                .disabled(isLoading || email.isEmpty || password.isEmpty)
 
-                // Divider
-                HStack {
-                    Rectangle()
-                        .fill(Color.black.opacity(0.2))
-                        .frame(height: 1)
-                    Text("or")
-                        .font(.system(size: 14))
-                        .foregroundColor(.black.opacity(0.5))
-                        .padding(.horizontal, 10)
-                    Rectangle()
-                        .fill(Color.black.opacity(0.2))
-                        .frame(height: 1)
-                }
-                .padding(.horizontal, 50)
+                        authField(icon: "lock.fill", title: "Password") {
+                            SecureField(
+                                "Password",
+                                text: $password,
+                                prompt: Text("Password").foregroundStyle(DesignSystem.ink.opacity(0.34))
+                            )
+                            .textContentType(isSignUp ? .newPassword : .password)
+                        }
 
-                // Apple Sign In
-                SignInWithAppleButton(.continue) { request in
-                    request.requestedScopes = [.fullName, .email]
-                    let nonce = supabaseManager.generateNonce()
-                    request.nonce = nonce
-                } onCompletion: { result in
-                    Task {
-                        await handleAppleSignIn(result: result)
+                        if let error = errorMessage {
+                            Label(error, systemImage: "exclamationmark.circle.fill")
+                                .font(DesignSystem.bodyFont(13))
+                                .foregroundStyle(DesignSystem.accentOrange)
+                                .frame(maxWidth: .infinity, alignment: .leading)
+                        }
+
+                        Button {
+                            Task { await authenticate() }
+                        } label: {
+                            Group {
+                                if isLoading {
+                                    ProgressView().tint(.white)
+                                } else {
+                                    HStack {
+                                        Text(isSignUp ? "Create account" : "Sign in")
+                                        Spacer()
+                                        Image(systemName: "arrow.right")
+                                    }
+                                }
+                            }
+                            .font(DesignSystem.titleFont(17))
+                            .foregroundStyle(.white)
+                            .frame(maxWidth: .infinity)
+                            .frame(height: 54)
+                            .padding(.horizontal, 20)
+                            .background(DesignSystem.accentNavy, in: Capsule())
+                        }
+                        .buttonStyle(PressScaleButtonStyle())
+                        .disabled(isLoading || email.isEmpty || password.isEmpty)
+                        .opacity(email.isEmpty || password.isEmpty ? 0.48 : 1)
+
+                        HStack(spacing: 12) {
+                            Rectangle().fill(DesignSystem.hairline).frame(height: 1)
+                            Text("OR").font(DesignSystem.labelFont(10)).foregroundStyle(DesignSystem.inkMuted)
+                            Rectangle().fill(DesignSystem.hairline).frame(height: 1)
+                        }
+
+                        SignInWithAppleButton(.continue) { request in
+                            request.requestedScopes = [.fullName, .email]
+                            let nonce = supabaseManager.generateNonce()
+                            request.nonce = nonce
+                        } onCompletion: { result in
+                            Task { await handleAppleSignIn(result: result) }
+                        }
+                        .signInWithAppleButtonStyle(.black)
+                        .frame(height: 52)
+                        .clipShape(Capsule())
                     }
-                }
-                .signInWithAppleButtonStyle(.black)
-                .frame(height: 50)
-                .cornerRadius(16)
-                .padding(.horizontal, 30)
+                    .padding(20)
+                    .background(DesignSystem.surface.opacity(0.94), in: RoundedRectangle(cornerRadius: 26, style: .continuous))
+                    .overlay(RoundedRectangle(cornerRadius: 26).stroke(DesignSystem.hairline, lineWidth: 1))
 
                 #if DEBUG
                 if let onEnterDemo {
                     Button(action: onEnterDemo) {
                         Label("Explore with demo data", systemImage: "flask.fill")
-                            .font(.system(size: 17, weight: .semibold, design: .serif))
+                            .font(DesignSystem.titleFont(17))
                             .foregroundStyle(DesignSystem.accentNavy)
                             .frame(maxWidth: .infinity)
                             .frame(height: 50)
@@ -236,24 +196,24 @@ struct AuthView: View {
                                     .stroke(DesignSystem.accentNavy.opacity(0.18), lineWidth: 1)
                             }
                     }
-                    .padding(.horizontal, 30)
                     .accessibilityHint("Opens local sample groups without signing in")
                 }
                 #endif
 
-                // Toggle mode
-                Button(action: {
+                Button {
                     withAnimation {
                         isSignUp.toggle()
                         errorMessage = nil
                     }
-                }) {
-                    Text(isSignUp ? "Already have an account? Sign In" : "Don't have an account? Sign Up")
-                        .font(.system(size: 14))
-                        .foregroundColor(.black.opacity(0.6))
+                } label: {
+                    Text(isSignUp ? "Already have an account?  Sign in" : "New to Cleave?  Create an account")
+                        .font(DesignSystem.titleFont(14))
+                        .foregroundStyle(DesignSystem.accentNavy)
                 }
-                .padding(.top, 10)
+                .padding(.bottom, 28)
             }
+            .padding(.horizontal, 24)
+        }
         }
         .overlay(alignment: .topTrailing) {
             if allowsDismiss {
@@ -267,8 +227,25 @@ struct AuthView: View {
             }
         }
         .preferredColorScheme(.light)
-        .sheet(isPresented: $showingPasswordReset) {
-            PasswordResetRequestView(initialEmail: email)
+    }
+
+    private func authField<Field: View>(
+        icon: String,
+        title: String,
+        @ViewBuilder field: () -> Field
+    ) -> some View {
+        VStack(alignment: .leading, spacing: 7) {
+            Label(title.uppercased(), systemImage: icon)
+                .font(DesignSystem.labelFont(10))
+                .tracking(1.2)
+                .foregroundStyle(DesignSystem.inkMuted)
+            field()
+                .font(DesignSystem.bodyFont(16))
+                .foregroundStyle(DesignSystem.ink)
+                .tint(DesignSystem.accentTeal)
+                .padding(.horizontal, 15)
+                .frame(height: 52)
+                .background(DesignSystem.fieldSurface, in: RoundedRectangle(cornerRadius: 15, style: .continuous))
         }
     }
 
@@ -330,28 +307,15 @@ struct AuthView: View {
         let suggestedUsername = email.split(separator: "@").first.map(String.init) ?? "member"
         _ = try await CleaveAPI.shared.bootstrapProfile(
             username: suggestedUsername,
-            email: email
+            email: email,
+            ageBand: AgePreferences.ageBand
         )
-        if let profile = try? await CleaveAPI.shared.fetchCurrentProfile(),
-           let regionCode = profile.regionCode,
-           let remoteRegion = AppRegion(rawValue: regionCode) {
-            PaymentPreferences.hydrate(
-                region: remoteRegion,
-                venmo: profile.venmoUsername,
-                upi: profile.upiId
-            )
-            return
-        }
-        guard PaymentPreferences.isComplete(
-            for: RegionManager.shared.currentRegion,
-            venmo: PaymentPreferences.venmoUsername,
-            upi: PaymentPreferences.upiID
-        ) else { return }
         do {
             _ = try await CleaveAPI.shared.updatePaymentDetails(
                 region: RegionManager.shared.currentRegion,
                 venmoUsername: PaymentPreferences.venmoUsername,
-                upiID: PaymentPreferences.upiID
+                upiID: PaymentPreferences.upiID,
+                aaniID: PaymentPreferences.aaniID
             )
             PaymentPreferences.markSynced()
         } catch {
@@ -362,197 +326,51 @@ struct AuthView: View {
     }
 }
 
-struct PasswordResetRequestView: View {
-    @Environment(\.dismiss) private var dismiss
-    @State private var email: String
-    @State private var isLoading = false
-    @State private var didSend = false
-    @State private var errorMessage: String?
-
-    init(initialEmail: String) {
-        _email = State(initialValue: initialEmail)
-    }
-
+private struct CleaveAuthBrandMark: View {
     var body: some View {
-        NavigationStack {
-            ZStack {
-                DesignSystem.canvasBeige.ignoresSafeArea()
-                VStack(alignment: .leading, spacing: 24) {
-                    Image(systemName: didSend ? "envelope.badge.fill" : "lock.rotation")
-                        .font(.system(size: 46, weight: .semibold))
-                        .foregroundColor(DesignSystem.accentNavy)
+        HStack(spacing: 13) {
+            Image("AppLogo")
+                .resizable()
+                .scaledToFit()
+                .frame(width: 72, height: 72)
+                .clipShape(RoundedRectangle(cornerRadius: 18, style: .continuous))
+            .shadow(color: DesignSystem.accentNavy.opacity(0.18), radius: 12, y: 7)
 
-                    Text(didSend ? "Check your email" : "Reset your password")
-                        .font(DesignSystem.displayFont(30))
-                        .foregroundColor(DesignSystem.ink)
-
-                    Text(didSend
-                         ? "If an account exists for that address, we sent a secure link. Open it on this iPhone to choose a new password."
-                         : "Enter the email address for your Cleave account. We’ll send a secure recovery link.")
-                        .font(DesignSystem.bodyFont(16))
-                        .foregroundColor(DesignSystem.inkMuted)
-                        .lineSpacing(4)
-
-                    if didSend {
-                        Button("Done") { dismiss() }
-                            .buttonStyle(CleavePrimaryButtonStyle())
-                    } else {
-                        TextField("Email", text: $email)
-                            .textContentType(.emailAddress)
-                            .keyboardType(.emailAddress)
-                            .textInputAutocapitalization(.never)
-                            .autocorrectionDisabled()
-                            .font(DesignSystem.bodyFont(17))
-                            .foregroundColor(DesignSystem.ink)
-                            .padding()
-                            .background(DesignSystem.surface)
-                            .clipShape(RoundedRectangle(cornerRadius: 16, style: .continuous))
-
-                        if let errorMessage {
-                            Text(errorMessage)
-                                .font(.footnote)
-                                .foregroundColor(.red)
-                                .accessibilityLabel("Error: \(errorMessage)")
-                        }
-
-                        Button {
-                            Task { await sendRecoveryEmail() }
-                        } label: {
-                            if isLoading { ProgressView().tint(.white) }
-                            else { Text("Send Recovery Link") }
-                        }
-                        .buttonStyle(CleavePrimaryButtonStyle())
-                        .disabled(isLoading || email.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty)
-                    }
-                    Spacer()
-                }
-                .padding(30)
-            }
-            .toolbar {
-                ToolbarItem(placement: .cancellationAction) {
-                    Button("Close") { dismiss() }
-                }
+            VStack(alignment: .leading, spacing: 0) {
+                Text("CLEAVE")
+                    .font(DesignSystem.displayFont(25))
+                    .tracking(1.4)
+                    .foregroundStyle(DesignSystem.accentNavy)
+                Text("SCAN · SPLIT · SETTLE")
+                    .font(DesignSystem.labelFont(8))
+                    .tracking(1.1)
+                    .foregroundStyle(DesignSystem.accentTeal)
             }
         }
-        .presentationDetents([.medium, .large])
-        .preferredColorScheme(.light)
-    }
-
-    @MainActor
-    private func sendRecoveryEmail() async {
-        isLoading = true
-        errorMessage = nil
-        do {
-            try await SupabaseManager.shared.requestPasswordReset(email: email)
-            didSend = true
-        } catch {
-            errorMessage = error.localizedDescription
-        }
-        isLoading = false
+        .accessibilityElement(children: .ignore)
+        .accessibilityLabel("Cleave")
     }
 }
 
-struct PasswordUpdateView: View {
-    @State private var password = ""
-    @State private var confirmation = ""
-    @State private var isLoading = false
-    @State private var didUpdate = false
-    @State private var errorMessage: String?
+private struct CleaveAuthReceiptMotif: View {
+    let color: Color
 
     var body: some View {
-        ZStack {
-            DesignSystem.canvasBeige.ignoresSafeArea()
-            ScrollView {
-                VStack(alignment: .leading, spacing: 24) {
-                    Image(systemName: didUpdate ? "checkmark.shield.fill" : "key.fill")
-                        .font(.system(size: 50, weight: .semibold))
-                        .foregroundColor(DesignSystem.accentNavy)
-                        .padding(.top, 42)
-
-                    Text(didUpdate ? "Password updated" : "Choose a new password")
-                        .font(DesignSystem.displayFont(32))
-                        .foregroundColor(DesignSystem.ink)
-
-                    Text(didUpdate
-                         ? "Your new password is ready. You can continue securely into Cleave."
-                         : "Use at least eight characters, including a letter and a number.")
-                        .font(DesignSystem.bodyFont(16))
-                        .foregroundColor(DesignSystem.inkMuted)
-
-                    if didUpdate {
-                        Button("Continue to Cleave") {
-                            SupabaseManager.shared.completePasswordRecovery()
-                        }
-                        .buttonStyle(CleavePrimaryButtonStyle())
-                    } else {
-                        VStack(spacing: 14) {
-                            SecureField("New password", text: $password)
-                                .textContentType(.newPassword)
-                            SecureField("Confirm new password", text: $confirmation)
-                                .textContentType(.newPassword)
-                        }
-                        .font(DesignSystem.bodyFont(17))
-                        .foregroundColor(DesignSystem.ink)
-                        .padding()
-                        .background(DesignSystem.surface)
-                        .clipShape(RoundedRectangle(cornerRadius: 16, style: .continuous))
-
-                        if let errorMessage {
-                            Text(errorMessage)
-                                .font(.footnote)
-                                .foregroundColor(.red)
-                        }
-
-                        Button {
-                            Task { await updatePassword() }
-                        } label: {
-                            if isLoading { ProgressView().tint(.white) }
-                            else { Text("Update Password") }
-                        }
-                        .buttonStyle(CleavePrimaryButtonStyle())
-                        .disabled(isLoading || password.isEmpty || confirmation.isEmpty)
-
-                        Button("Cancel and Sign Out") {
-                            Task { await SupabaseManager.shared.cancelPasswordRecovery() }
-                        }
-                        .font(DesignSystem.titleFont(14))
-                        .foregroundColor(DesignSystem.inkMuted)
-                        .frame(maxWidth: .infinity)
-                    }
-                }
-                .padding(30)
+        VStack(alignment: .leading, spacing: 7) {
+            Capsule().frame(width: 38, height: 6)
+            Capsule().frame(width: 54, height: 6)
+            Capsule().frame(width: 44, height: 6)
+            Spacer(minLength: 4)
+            HStack(spacing: 5) {
+                Circle().frame(width: 7, height: 7)
+                Circle().frame(width: 7, height: 7)
+                Circle().frame(width: 7, height: 7)
             }
         }
-        .interactiveDismissDisabled()
-        .preferredColorScheme(.light)
-    }
-
-    @MainActor
-    private func updatePassword() async {
-        errorMessage = nil
-        guard password == confirmation else {
-            errorMessage = "The passwords do not match."
-            return
-        }
-        isLoading = true
-        do {
-            try await SupabaseManager.shared.updatePassword(password)
-            didUpdate = true
-        } catch {
-            errorMessage = error.localizedDescription
-        }
-        isLoading = false
-    }
-}
-
-private struct CleavePrimaryButtonStyle: ButtonStyle {
-    func makeBody(configuration: Configuration) -> some View {
-        configuration.label
-            .font(DesignSystem.titleFont(17))
-            .foregroundColor(.white)
-            .frame(maxWidth: .infinity)
-            .padding(.vertical, 16)
-            .background(DesignSystem.accentNavy.opacity(configuration.isPressed ? 0.78 : 1))
-            .clipShape(RoundedRectangle(cornerRadius: 16, style: .continuous))
+        .foregroundStyle(.white.opacity(0.85))
+        .padding(16)
+        .background(color, in: RoundedRectangle(cornerRadius: 18, style: .continuous))
+        .shadow(color: color.opacity(0.2), radius: 12, y: 7)
+        .accessibilityHidden(true)
     }
 }

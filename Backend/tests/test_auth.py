@@ -75,3 +75,22 @@ def test_expired_token_is_rejected(monkeypatch):
         get_current_user(credentials(token))
 
     assert error.value.status_code == 401
+
+
+def test_anonymous_supabase_session_is_rejected(monkeypatch):
+    monkeypatch.setenv("SUPABASE_JWT_SECRET", SECRET)
+    token = jwt.encode(
+        {
+            "sub": "00000000-0000-0000-0000-000000000001",
+            "aud": "authenticated",
+            "is_anonymous": True,
+            "exp": datetime.now(timezone.utc) + timedelta(minutes=5),
+        },
+        SECRET,
+        algorithm="HS256",
+    )
+
+    with pytest.raises(HTTPException) as error:
+        get_current_user(credentials(token))
+
+    assert error.value.status_code == 401

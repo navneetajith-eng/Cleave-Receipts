@@ -15,6 +15,7 @@ struct ManualEntrySheetView: View {
     @State private var title: String = ""
     @State private var tax: String = ""
     @State private var tip: String = ""
+    @State private var currency: Currency = RegionManager.shared.currentRegion.currency
 
     @State private var manualItems: [ManualItem] = [ManualItem()]
     @State private var isSaving = false
@@ -105,6 +106,13 @@ struct ManualEntrySheetView: View {
                 .tracking(1.7)
                 .foregroundStyle(DesignSystem.inkMuted)
 
+            Picker("Receipt currency", selection: $currency) {
+                ForEach(Currency.allCases) { currency in
+                    Text(currency.displayName).tag(currency)
+                }
+            }
+            .pickerStyle(.segmented)
+
             VStack(alignment: .leading, spacing: 6) {
                 Text("Name")
                     .font(DesignSystem.labelFont(12))
@@ -193,7 +201,7 @@ struct ManualEntrySheetView: View {
                 .tint(DesignSystem.accentTeal)
 
             HStack(spacing: 4) {
-                Text(CurrencyManager.shared.currentCurrency.symbol)
+                Text(currency.symbol)
                     .font(DesignSystem.labelFont(11))
                     .foregroundStyle(DesignSystem.inkMuted)
                 TextField(
@@ -240,7 +248,7 @@ struct ManualEntrySheetView: View {
                 .font(DesignSystem.labelFont(12))
                 .foregroundStyle(DesignSystem.inkMuted)
             HStack(spacing: 5) {
-                Text(CurrencyManager.shared.currentCurrency.symbol)
+                Text(currency.symbol)
                     .font(DesignSystem.labelFont(11))
                     .foregroundStyle(DesignSystem.inkMuted)
                 TextField(
@@ -283,7 +291,7 @@ struct ManualEntrySheetView: View {
                         groupId: groupId,
                         title: title.isEmpty ? "Manual Entry" : title,
                         adminId: userID,
-                        currencyCode: CurrencyManager.shared.currentCurrency.rawValue,
+                        currencyCode: currency,
                         taxAmount: taxVal,
                         tipAmount: tipVal,
                         discountAmount: 0,
@@ -300,7 +308,7 @@ struct ManualEntrySheetView: View {
                         tax: taxVal,
                         tip: tipVal,
                         discount: 0,
-                        currency: CurrencyManager.shared.currentCurrency
+                        currency: currency
                     )
                 }
                 await MainActor.run {
@@ -315,7 +323,9 @@ struct ManualEntrySheetView: View {
                             tax: receipt.taxAmount,
                             tip: receipt.tipAmount,
                             discount: receipt.discountAmount,
-                            currency: receipt.currency
+                            currency: receipt.currency,
+                            viewerIsAdmin: true,
+                            adminOverrideMode: false
                         )
                     }
                 }

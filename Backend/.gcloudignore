@@ -1,0 +1,10 @@
+.gcloudignore
+.git
+.gitignore
+.venv/
+.pytest_cache/
+__pycache__/
+**/__pycache__/
+*.py[cod]
+uvicorn.log
+.DS_Store

@@ -54,7 +54,7 @@ enum PaymentDeepLinkBuilder {
     }
 
     static func clipboardSummary(
-        currency: Currency,
+        region: AppRegion,
         amount: Double,
         memberName: String,
         note: String,
@@ -62,7 +62,7 @@ enum PaymentDeepLinkBuilder {
     ) -> String {
         [
             "Pay \(memberName)",
-            CurrencyManager.format(amount, currency: currency),
+            CurrencyManager.format(amount, currency: region.currency),
             note,
             paymentAddress.map { "Payment ID: \($0)" }
         ].compactMap { $0 }.joined(separator: " • ")

@@ -12,6 +12,7 @@ final class CleaveAPI {
         case configuration
         case invalidResponse
         case unauthorized
+        case serviceUpdateRequired
         case server(status: Int, message: String)
         case decoding
 
@@ -23,21 +24,12 @@ final class CleaveAPI {
                 return "The server returned an invalid response."
             case .unauthorized:
                 return "Your session has expired. Please sign in again."
+            case .serviceUpdateRequired:
+                return "Cleave's beta service needs to be updated before this feature can sync."
             case .server(_, let message):
                 return message
             case .decoding:
                 return "Cleave couldn't understand the server response."
-            }
-        }
-
-        var shouldKeepReceiptDraft: Bool {
-            switch self {
-            case .server(let status, _):
-                return status == 408 || status == 429 || status >= 500
-            case .configuration, .unauthorized:
-                return true
-            case .invalidResponse, .decoding:
-                return true
             }
         }
     }
@@ -51,14 +43,35 @@ final class CleaveAPI {
     }
     private struct GroupUpdatePayload: Encodable { let name: String }
     private struct MemberPayload: Encodable { let userId: String }
-    private struct ProfilePayload: Encodable { let username: String; let email: String }
-    private struct ProfileUpdatePayload: Encodable { let username: String }
+    private struct ProfilePayload: Encodable {
+        let username: String
+        let displayName: String?
+        let email: String
+        let ageBand: String?
+    }
+    private struct ProfileUpdatePayload: Encodable {
+        let username: String?
+        let displayName: String?
+        let ageBand: String?
+        let avatarVisibility: String?
+        let paymentVisibility: String?
+    }
     private struct PaymentDetailsPayload: Encodable {
         let regionCode: String
         let venmoUsername: String?
         let upiId: String?
+        let aaniId: String?
+    }
+    private struct ProfileSettingsPayload: Encodable {
+        let profile: ProfileUpdatePayload
+        let paymentDetails: PaymentDetailsPayload
+    }
+    struct Capabilities: Decodable, Equatable {
+        let apiVersion: Int
+        let features: [String]
     }
     private struct ExperiencePayload: Encodable { let rating: Int }
+    private struct PaymentReviewPayload: Encodable { let status: String }
     private struct AssignmentPayload: Encodable { let userIds: [String] }
     private struct AssignmentBatchPayload: Encodable {
         struct Item: Encodable {
@@ -76,10 +89,6 @@ final class CleaveAPI {
         let discountAmount: Double
         let items: [Item]
     }
-    private struct SettlementPayload: Encodable {
-        let receiptId: String
-        let toUserId: String
-    }
     private struct ReceiptUpdatePayload: Encodable {
         struct Item: Encodable {
             let id: String
@@ -87,18 +96,29 @@ final class CleaveAPI {
             let price: Double
         }
         let title: String
+        let currencyCode: String
         let taxAmount: Double
         let tipAmount: Double
         let discountAmount: Double
         let items: [Item]
     }
+    private struct AdminReceiptReviewPayload: Encodable {
+        let receipt: ReceiptUpdatePayload
+        let assignments: AssignmentBatchPayload
+    }
+    private struct ReceiptClaimPayload: Encodable {
+        let itemIds: [String]
+        let receipt: ReceiptUpdatePayload?
+    }
     private struct GroupResponse: Decodable {
         struct MemberResponse: Decodable {
             let id: UUID
             let username: String
+            let displayName: String?
             let regionCode: String?
             let venmoUsername: String?
             let upiId: String?
+            let aaniId: String?
         }
         let id: UUID
         let name: String
@@ -114,9 +134,11 @@ final class CleaveAPI {
                     GroupMemberModel(
                         id: $0.id,
                         username: $0.username,
+                        displayName: $0.displayName,
                         regionCode: $0.regionCode,
                         venmoUsername: $0.venmoUsername,
-                        upiId: $0.upiId
+                        upiId: $0.upiId,
+                        aaniId: $0.aaniId
                     )
                 },
                 isCollaborative: isCollaborative,
@@ -149,8 +171,8 @@ final class CleaveAPI {
         return response.model
     }
 
-    func deleteGroup(id: UUID) async throws {
-        let _: Data = try await sendData(path: "groups/\(id.uuidString)", method: "DELETE")
+    func leaveGroup(id: UUID) async throws {
+        let _: Data = try await sendData(path: "groups/\(id.uuidString)/leave", method: "POST")
     }
 
     func addMember(groupID: UUID, profileID: UUID) async throws -> GroupModel {
@@ -169,11 +191,11 @@ final class CleaveAPI {
         return try await send(path: "profiles\(queryString)")
     }
 
-    func bootstrapProfile(username: String, email: String) async throws -> Profile {
+    func bootstrapProfile(username: String, email: String, ageBand: AgeBand? = nil) async throws -> Profile {
         try await send(
             path: "profiles/bootstrap",
             method: "POST",
-            body: ProfilePayload(username: username, email: email)
+            body: ProfilePayload(username: username, displayName: username, email: email, ageBand: ageBand?.rawValue)
         )
     }
 
@@ -181,18 +203,31 @@ final class CleaveAPI {
         try await send(path: "profiles/me")
     }
 
-    func updateProfile(username: String) async throws -> Profile {
+    func updateProfile(
+        username: String? = nil,
+        displayName: String? = nil,
+        ageBand: AgeBand? = nil,
+        avatarVisibility: ProfileVisibility? = nil,
+        paymentVisibility: ProfileVisibility? = nil
+    ) async throws -> Profile {
         try await send(
             path: "profiles/me",
             method: "PATCH",
-            body: ProfileUpdatePayload(username: username)
+            body: ProfileUpdatePayload(
+                username: username,
+                displayName: displayName,
+                ageBand: ageBand?.rawValue,
+                avatarVisibility: avatarVisibility?.rawValue,
+                paymentVisibility: paymentVisibility?.rawValue
+            )
         )
     }
 
     func updatePaymentDetails(
         region: AppRegion,
         venmoUsername: String,
-        upiID: String
+        upiID: String,
+        aaniID: String = ""
     ) async throws -> Profile {
         try await send(
             path: "profiles/me/payment-details",
@@ -200,9 +235,54 @@ final class CleaveAPI {
             body: PaymentDetailsPayload(
                 regionCode: region.rawValue,
                 venmoUsername: PaymentPreferences.normalizedVenmo(venmoUsername).nilIfEmpty,
-                upiId: PaymentPreferences.normalizedUPI(upiID).nilIfEmpty
+                upiId: PaymentPreferences.normalizedUPI(upiID).nilIfEmpty,
+                aaniId: PaymentPreferences.normalizedAani(aaniID).nilIfEmpty
             )
         )
+    }
+
+    func updateProfileSettings(
+        username: String,
+        displayName: String,
+        ageBand: AgeBand,
+        avatarVisibility: ProfileVisibility,
+        paymentVisibility: ProfileVisibility,
+        region: AppRegion,
+        venmoUsername: String,
+        upiID: String,
+        aaniID: String
+    ) async throws -> Profile {
+        do {
+            return try await send(
+                path: "profiles/me/settings",
+                method: "PUT",
+                body: ProfileSettingsPayload(
+                    profile: ProfileUpdatePayload(
+                        username: username,
+                        displayName: displayName,
+                        ageBand: ageBand.rawValue,
+                        avatarVisibility: avatarVisibility.rawValue,
+                        paymentVisibility: paymentVisibility.rawValue
+                    ),
+                    paymentDetails: PaymentDetailsPayload(
+                        regionCode: region.rawValue,
+                        venmoUsername: PaymentPreferences.normalizedVenmo(venmoUsername).nilIfEmpty,
+                        upiId: PaymentPreferences.normalizedUPI(upiID).nilIfEmpty,
+                        aaniId: PaymentPreferences.normalizedAani(aaniID).nilIfEmpty
+                    )
+                )
+            )
+        } catch APIError.server(let status, _) where status == 404 {
+            throw APIError.serviceUpdateRequired
+        }
+    }
+
+    func fetchCapabilities() async throws -> Capabilities {
+        do {
+            return try await send(path: "capabilities")
+        } catch APIError.server(let status, _) where status == 404 {
+            throw APIError.serviceUpdateRequired
+        }
     }
 
     func updateProfileAvatar(image: UIImage) async throws -> Profile {
@@ -218,6 +298,10 @@ final class CleaveAPI {
 
     func fetchFriends() async throws -> [Profile] {
         try await send(path: "friends")
+    }
+
+    func fetchFriendProfile(id: UUID) async throws -> Profile {
+        try await send(path: "friends/\(id.uuidString)")
     }
 
     func fetchInbox() async throws -> [InboxItem] {
@@ -267,18 +351,15 @@ final class CleaveAPI {
         )
     }
 
-    func uploadReceiptImage(
-        image: UIImage,
-        groupID: UUID,
-        currency: Currency
-    ) async throws -> RemoteReceipt {
+    func uploadReceiptImage(image: UIImage, groupID: UUID, requestID: UUID) async throws -> RemoteReceipt {
         guard let imageData = image.jpegData(compressionQuality: 0.82) else {
             throw APIError.invalidResponse
         }
         return try await upload(
-            path: "receipts?group_id=\(groupID.uuidString)&currency_code=\(currency.rawValue)",
+            path: "receipts?group_id=\(groupID.uuidString)",
             data: imageData,
-            filename: "receipt.jpg"
+            filename: "receipt.jpg",
+            idempotencyKey: requestID.uuidString
         )
     }
 
@@ -324,10 +405,12 @@ final class CleaveAPI {
         items: [ReceiptItem],
         tax: Double,
         tip: Double,
-        discount: Double
+        discount: Double,
+        currency: Currency
     ) async throws -> RemoteReceipt {
         let payload = ReceiptUpdatePayload(
             title: title,
+            currencyCode: currency.rawValue,
             taxAmount: tax,
             tipAmount: tip,
             discountAmount: discount,
@@ -338,6 +421,74 @@ final class CleaveAPI {
             method: "PATCH",
             body: payload
         )
+    }
+
+    func saveAdminReceiptReview(
+        receiptID: String,
+        title: String,
+        items: [ReceiptItem],
+        assignments: [String: Set<String>],
+        tax: Double,
+        tip: Double,
+        discount: Double,
+        currency: Currency
+    ) async throws -> RemoteReceipt {
+        let receipt = ReceiptUpdatePayload(
+            title: title,
+            currencyCode: currency.rawValue,
+            taxAmount: tax,
+            tipAmount: tip,
+            discountAmount: discount,
+            items: items.map { .init(id: $0.id, name: $0.name, price: $0.price) }
+        )
+        let assignmentPayload = AssignmentBatchPayload(
+            items: items.map { item in
+                .init(itemId: item.id, userIds: Array(assignments[item.id] ?? []).sorted())
+            }
+        )
+        do {
+            return try await send(
+                path: "receipts/\(receiptID)/review",
+                method: "PUT",
+                body: AdminReceiptReviewPayload(receipt: receipt, assignments: assignmentPayload)
+            )
+        } catch APIError.server(let status, _) where status == 404 {
+            throw APIError.serviceUpdateRequired
+        }
+    }
+
+    func submitReceiptClaim(
+        receiptID: String,
+        itemIDs: [String],
+        editedTitle: String? = nil,
+        editedItems: [ReceiptItem]? = nil,
+        tax: Double? = nil,
+        tip: Double? = nil,
+        discount: Double? = nil,
+        currency: Currency? = nil
+    ) async throws -> ReceiptReview {
+        let editedReceipt: ReceiptUpdatePayload?
+        if let editedTitle, let editedItems, let tax, let tip, let discount, let currency {
+            editedReceipt = ReceiptUpdatePayload(
+                title: editedTitle,
+                currencyCode: currency.rawValue,
+                taxAmount: tax,
+                tipAmount: tip,
+                discountAmount: discount,
+                items: editedItems.map { .init(id: $0.id, name: $0.name, price: $0.price) }
+            )
+        } else {
+            editedReceipt = nil
+        }
+        return try await send(
+            path: "receipts/\(receiptID)/claim",
+            method: "PUT",
+            body: ReceiptClaimPayload(itemIds: itemIDs.sorted(), receipt: editedReceipt)
+        )
+    }
+
+    func deleteReceipt(receiptID: UUID) async throws {
+        let _: Data = try await sendData(path: "receipts/\(receiptID.uuidString)", method: "DELETE")
     }
 
     func assignItems(receiptID: String, assignments: [String: Set<String>]) async throws {
@@ -365,26 +516,51 @@ final class CleaveAPI {
         try await send(path: "receipts/\(receiptID)/balances")
     }
 
-    func initiateSettlement(receiptID: String, recipientID: UUID) async throws -> RemoteSettlement {
-        try await send(
-            path: "settlements",
-            method: "POST",
-            body: SettlementPayload(
-                receiptId: receiptID,
-                toUserId: recipientID.uuidString
-            )
-        )
+    func fetchReceiptReview(receiptID: String) async throws -> ReceiptReview {
+        do {
+            return try await send(path: "receipts/\(receiptID)/review")
+        } catch APIError.server(let status, _) where status == 404 {
+            throw APIError.serviceUpdateRequired
+        }
     }
 
-    func confirmSettlement(id: UUID) async throws -> RemoteSettlement {
+    func markReceiptPaid(receiptID: String) async throws -> RemoteSettlement {
         let body = Data("{}".utf8)
-        let data = try await sendData(
-            path: "settlements/\(id.uuidString)/confirm",
-            method: "PATCH",
-            body: body,
-            contentType: "application/json"
-        )
+        let data: Data
+        do {
+            data = try await sendData(
+                path: "receipts/\(receiptID)/payment-status",
+                method: "PUT",
+                body: body,
+                contentType: "application/json"
+            )
+        } catch APIError.server(let status, _) where status == 404 {
+            throw APIError.serviceUpdateRequired
+        }
         return try decode(RemoteSettlement.self, from: data)
+    }
+
+    func withdrawReceiptPaidMark(receiptID: String) async throws {
+        do {
+            let _: Data = try await sendData(
+                path: "receipts/\(receiptID)/payment-status",
+                method: "DELETE"
+            )
+        } catch APIError.server(let status, _) where status == 404 {
+            throw APIError.serviceUpdateRequired
+        }
+    }
+
+    func reviewPayment(receiptID: String, paymentID: UUID, status: String) async throws -> RemoteSettlement {
+        do {
+            return try await send(
+                path: "receipts/\(receiptID)/payments/\(paymentID.uuidString)",
+                method: "PATCH",
+                body: PaymentReviewPayload(status: status)
+            )
+        } catch APIError.server(let code, _) where code == 404 {
+            throw APIError.serviceUpdateRequired
+        }
     }
 
     private struct ReceiptExperienceResponse: Decodable {
@@ -437,7 +613,8 @@ final class CleaveAPI {
     private func upload<Response: Decodable>(
         path: String,
         data: Data,
-        filename: String
+        filename: String,
+        idempotencyKey: String? = nil
     ) async throws -> Response {
         guard let baseURL = AppConfiguration.apiBaseURL,
               let url = URL(string: path, relativeTo: baseURL)?.absoluteURL else {
@@ -448,6 +625,9 @@ final class CleaveAPI {
         request.httpMethod = "POST"
         request.setValue("Bearer \(try await SupabaseManager.shared.accessToken())", forHTTPHeaderField: "Authorization")
         request.setValue("multipart/form-data; boundary=\(boundary)", forHTTPHeaderField: "Content-Type")
+        if let idempotencyKey {
+            request.setValue(idempotencyKey, forHTTPHeaderField: "Idempotency-Key")
+        }
 
         var body = Data()
         body.append("--\(boundary)\r\n".data(using: .utf8)!)
@@ -460,14 +640,32 @@ final class CleaveAPI {
     }
 
     private func execute(_ request: URLRequest) async throws -> Data {
-        let (data, response) = try await URLSession.shared.data(for: request)
-        guard let http = response as? HTTPURLResponse else { throw APIError.invalidResponse }
-        guard (200...299).contains(http.statusCode) else {
-            if http.statusCode == 401 { throw APIError.unauthorized }
-            let detail = (try? decoder.decode(ErrorEnvelope.self, from: data).detail)
-            throw APIError.server(status: http.statusCode, message: detail ?? "The request failed. Please try again.")
+        let method = request.httpMethod ?? "GET"
+        let canRetry = method == "GET" || method == "HEAD" || request.value(forHTTPHeaderField: "Idempotency-Key") != nil
+        let retryableStatuses = [429, 502, 503, 504]
+
+        for attempt in 0..<3 {
+            do {
+                let (data, response) = try await URLSession.shared.data(for: request)
+                guard let http = response as? HTTPURLResponse else { throw APIError.invalidResponse }
+                if canRetry, retryableStatuses.contains(http.statusCode), attempt < 2 {
+                    try await Task.sleep(for: .milliseconds(350 * (attempt + 1)))
+                    continue
+                }
+                guard (200...299).contains(http.statusCode) else {
+                    if http.statusCode == 401 { throw APIError.unauthorized }
+                    let detail = (try? decoder.decode(ErrorEnvelope.self, from: data).detail)
+                    throw APIError.server(status: http.statusCode, message: detail ?? "The request failed. Please try again.")
+                }
+                return data
+            } catch is CancellationError {
+                throw CancellationError()
+            } catch let error as URLError where canRetry && attempt < 2 {
+                if error.code == .cancelled { throw error }
+                try await Task.sleep(for: .milliseconds(350 * (attempt + 1)))
+            }
         }
-        return data
+        throw APIError.invalidResponse
     }
 
     private func decode<Response: Decodable>(_ type: Response.Type, from data: Data) throws -> Response {

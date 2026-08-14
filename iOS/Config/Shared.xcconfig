@@ -1,5 +1,6 @@
 CLEAVE_BUNDLE_IDENTIFIER = com.cleave.Cleave
 CLEAVE_SUPABASE_URL = https:/$()/fxdahofzkjwkpuwkjybj.supabase.co
+CLEAVE_WEBSITE_BASE_URL = https:/$()/cleave-privacy-support.ryliemadisono.chatgpt.site/
 CLEAVE_SUPABASE_ANON_KEY =
 DEVELOPMENT_TEAM =
 CODE_SIGN_STYLE = Automatic

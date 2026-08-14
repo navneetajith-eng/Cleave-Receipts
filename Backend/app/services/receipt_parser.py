@@ -21,10 +21,16 @@ def parseReceiptImage(image_bytes: bytes, mime_type: str = "image/jpeg") -> Pars
 
     # Import lazily so API routes that do not scan receipts stay lightweight.
     from google import genai
-    from google.genai import types
+    from google.genai import errors, types
 
     prompt = """
     Extract the merchant, totals, and every purchased item from this receipt.
+
+    Currency rules:
+    - Return the ISO currency code printed or clearly implied by an explicit currency
+      symbol. Supported values are USD, INR, and AED.
+    - Do not guess a currency when the receipt does not provide enough evidence;
+      leave currency_code empty so the app can ask the scanner to confirm it.
 
     Receipt line-item rules:
     - Transcribe every physical purchased row exactly once, in top-to-bottom order.
@@ -53,6 +59,9 @@ def parseReceiptImage(image_bytes: bytes, mime_type: str = "image/jpeg") -> Pars
                 config=types.GenerateContentConfig(
                     response_mime_type="application/json",
                     response_schema=ParsedReceipt,
+                    # Receipt text is often small and densely packed. The high
+                    # media resolution materially improves line-item OCR.
+                    media_resolution=types.MediaResolution.MEDIA_RESOLUTION_HIGH,
                 ),
             )
         if isinstance(response.parsed, ParsedReceipt):
@@ -60,6 +69,8 @@ def parseReceiptImage(image_bytes: bytes, mime_type: str = "image/jpeg") -> Pars
         if response.text:
             return ParsedReceipt.model_validate_json(response.text)
         raise ValueError("The parser returned no receipt data")
+    except errors.APIError as error:
+        raise ValueError("Receipt scanning is temporarily unavailable") from error
     except Exception as error:
         logger.exception("Receipt parser failed: %s", type(error).__name__)
         raise ValueError(

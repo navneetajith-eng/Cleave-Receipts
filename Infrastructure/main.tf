@@ -170,6 +170,11 @@ resource "google_cloud_run_v2_service" "backend" {
         value = google_storage_bucket.receipts.name
       }
 
+      env {
+        name  = "ENVIRONMENT"
+        value = "production"
+      }
+
       dynamic "env" {
         for_each = var.cors_allowed_origins == "" ? [] : [var.cors_allowed_origins]
         content {

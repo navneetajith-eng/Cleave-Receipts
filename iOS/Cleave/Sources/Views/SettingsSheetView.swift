@@ -3,13 +3,13 @@ import SwiftUI
 struct SettingsSheetView: View {
     @Binding var isPresented: Bool
     @EnvironmentObject private var store: AppStore
+    @Environment(\.openURL) private var openURL
     @AppStorage("selectedRegion") private var selectedRegion: String = ""
     @AppStorage(DemoMode.defaultsKey) private var demoModeEnabled = false
     @AppStorage(HapticsManager.defaultsKey) private var hapticsEnabled = true
     @AppStorage("onboardingVersion") private var onboardingVersion = OnboardingVersion.current
+    @AppStorage("onboardingReplayRequested") private var onboardingReplayRequested = false
 
-    @State private var showingPrivacyPolicy = false
-    @State private var showingFAQ = false
     @State private var showingProfileSheet = false
     @State private var showingResetDemoConfirmation = false
     @State private var showingDeleteConfirmation = false
@@ -17,11 +17,19 @@ struct SettingsSheetView: View {
 
     var body: some View {
         VStack(alignment: .leading, spacing: 24) {
-            HStack {
-                Text("Settings")
-                    .font(DesignSystem.displayFont(29))
-                    .foregroundColor(DesignSystem.ink)
-                Spacer()
+            ZStack {
+                HStack(spacing: 9) {
+                    Image("AppLogo")
+                        .resizable()
+                        .scaledToFit()
+                        .frame(width: 38, height: 38)
+                        .clipShape(RoundedRectangle(cornerRadius: 10, style: .continuous))
+                    Text("Settings")
+                        .font(DesignSystem.displayFont(25))
+                        .foregroundColor(DesignSystem.ink)
+                }
+                HStack {
+                    Spacer()
                 Button(action: {
                     isPresented = false
                 }) {
@@ -32,6 +40,7 @@ struct SettingsSheetView: View {
                         .background(DesignSystem.surface)
                         .clipShape(Circle())
                         .overlay(Circle().stroke(DesignSystem.hairline, lineWidth: 1))
+                }
                 }
             }
             .padding(.horizontal, 30)
@@ -122,7 +131,7 @@ struct SettingsSheetView: View {
                             .padding(16)
                             .background(DesignSystem.surface)
 
-                            if !isDemoMode {
+                            if !demoModeEnabled {
                                 Button(action: { showingProfileSheet = true }) {
                                     settingsRow(
                                         title: "Payment & profile",
@@ -134,7 +143,7 @@ struct SettingsSheetView: View {
                             }
 
                             Button {
-                                onboardingVersion = 0
+                                onboardingReplayRequested = true
                                 isPresented = false
                             } label: {
                                 settingsRow(
@@ -150,7 +159,7 @@ struct SettingsSheetView: View {
                         .padding(.horizontal, 30)
                     }
 
-                    if isDemoMode {
+                    if demoModeEnabled {
                         VStack(alignment: .leading, spacing: 12) {
                             settingsSectionLabel("Demo Lab")
 
@@ -174,11 +183,21 @@ struct SettingsSheetView: View {
                         settingsSectionLabel("Help & legal")
 
                         VStack(spacing: 1) {
-                            Button(action: { showingPrivacyPolicy = true }) {
-                                settingsRow(title: "Privacy Policy", icon: "hand.raised.fill", color: DesignSystem.accentNavy)
+                            Button(action: { openWebsite(AppConfiguration.privacyPolicyURL) }) {
+                                settingsRow(
+                                    title: "Privacy Policy",
+                                    subtitle: "Read the current policy online",
+                                    icon: "hand.raised.fill",
+                                    color: DesignSystem.accentNavy
+                                )
                             }
-                            Button(action: { showingFAQ = true }) {
-                                settingsRow(title: "Help & FAQ", icon: "questionmark.circle.fill", color: DesignSystem.accentTeal)
+                            Button(action: { openWebsite(AppConfiguration.supportURL) }) {
+                                settingsRow(
+                                    title: "Help & FAQ",
+                                    subtitle: "Answers for scans, splits, privacy, and payments",
+                                    icon: "questionmark.circle.fill",
+                                    color: DesignSystem.accentTeal
+                                )
                             }
                         }
                         .clipShape(RoundedRectangle(cornerRadius: 18, style: .continuous))
@@ -188,7 +207,7 @@ struct SettingsSheetView: View {
 
                     // Account actions
                     Button(action: {
-                        if isDemoMode {
+                        if demoModeEnabled {
                             store.clearForSignOut()
                             demoModeEnabled = false
                             isPresented = false
@@ -203,7 +222,7 @@ struct SettingsSheetView: View {
                             }
                         }
                     }) {
-                        Text(isDemoMode ? "Exit demo mode" : "Log out")
+                        Text(demoModeEnabled ? "Exit demo mode" : "Log out")
                             .font(DesignSystem.titleFont(16))
                             .foregroundColor(.white)
                             .frame(maxWidth: .infinity)
@@ -213,7 +232,7 @@ struct SettingsSheetView: View {
                             .padding(.horizontal, 30)
                     }
 
-                    if !isDemoMode {
+                    if !demoModeEnabled {
                         Button(role: .destructive) {
                             showingDeleteConfirmation = true
                         } label: {
@@ -239,12 +258,6 @@ struct SettingsSheetView: View {
             }
         }
         .background(DesignSystem.canvasBeige.edgesIgnoringSafeArea(.all))
-        .fullScreenCover(isPresented: $showingPrivacyPolicy) {
-            PrivacyPolicyView()
-        }
-        .fullScreenCover(isPresented: $showingFAQ) {
-            FAQView()
-        }
         .sheet(isPresented: $showingProfileSheet) {
             ProfileSheetView(isPresented: $showingProfileSheet)
                 .presentationDragIndicator(.visible)
@@ -279,10 +292,6 @@ struct SettingsSheetView: View {
         AppRegion(rawValue: selectedRegion) ?? RegionManager.shared.currentRegion
     }
 
-    private var isDemoMode: Bool {
-        DemoMode.isEnabled
-    }
-
     private func syncRegionIfReady(_ region: AppRegion) {
         guard PaymentPreferences.isComplete(
             for: region,
@@ -294,7 +303,8 @@ struct SettingsSheetView: View {
                 _ = try await CleaveAPI.shared.updatePaymentDetails(
                     region: region,
                     venmoUsername: PaymentPreferences.venmoUsername,
-                    upiID: PaymentPreferences.upiID
+                    upiID: PaymentPreferences.upiID,
+                    aaniID: PaymentPreferences.aaniID
                 )
                 PaymentPreferences.markSynced()
             } catch {
@@ -316,6 +326,14 @@ struct SettingsSheetView: View {
             isDeletingAccount = false
             ErrorManager.shared.showError(error.localizedDescription)
         }
+    }
+
+    private func openWebsite(_ url: URL?) {
+        guard let url else {
+            ErrorManager.shared.showError("Cleave's support website is temporarily unavailable.")
+            return
+        }
+        openURL(url)
     }
 
     private func settingsSectionLabel(_ title: String) -> some View {
@@ -360,157 +378,5 @@ struct SettingsSheetView: View {
         }
         .padding(16)
         .background(DesignSystem.surface)
-    }
-}
-
-struct PrivacyPolicyView: View {
-    @Environment(\.presentationMode) var presentationMode
-
-    var body: some View {
-        ZStack {
-            DesignSystem.canvasBeige.ignoresSafeArea()
-
-            VStack(alignment: .leading, spacing: 20) {
-                // Header
-                HStack {
-                    Button(action: {
-                        presentationMode.wrappedValue.dismiss()
-                    }) {
-                        Image(systemName: "chevron.left.circle.fill")
-                            .font(.system(size: 32))
-                            .foregroundColor(.black.opacity(0.7))
-                    }
-                    Spacer()
-                }
-                .padding(.horizontal, 30)
-                .padding(.top, 20)
-
-                Text("Privacy Policy")
-                    .font(.system(size: 36, weight: .black, design: .rounded))
-                    .foregroundColor(Color.black.opacity(0.85))
-                    .padding(.horizontal, 30)
-
-                Text("Effective August 11, 2026")
-                    .font(DesignSystem.labelFont(12))
-                    .foregroundColor(DesignSystem.inkMuted)
-                    .padding(.horizontal, 30)
-
-                ScrollView(showsIndicators: false) {
-                    VStack(alignment: .leading, spacing: 24) {
-                        Text("Cleave makes shared expenses simpler without turning receipts into an advertising profile.")
-                            .font(DesignSystem.titleFont(16))
-                            .foregroundColor(DesignSystem.inkMuted)
-                            .lineSpacing(4)
-
-                        policySection(title: "1. Information We Collect", content: "Account information includes your email, username, account identifier, optional profile photo, selected region, and optional Venmo username or UPI ID. Shared-expense information includes groups, invitations, receipts, images, merchants, line items, amounts, currency, assignments, balances, settlement status, ratings, and optional memory photos. Our services also create limited security and diagnostic logs.")
-
-                        policySection(title: "2. How We Use Information", content: "We use this information to authenticate you, synchronize collaborative groups, parse and review receipts, reconcile splits, prepare payment-app handoffs, provide support, secure the service, and diagnose reliability problems. Cleave does not process payments, sell personal information, or track you across other companies’ apps and websites.")
-
-                        policySection(title: "3. Sharing and Providers", content: "Collaborative group members can see group content and payment identifiers needed to pay one another. Supabase provides authentication and database infrastructure. Google Cloud hosts the backend, private media, and operational logs. Google Gemini processes receipt images to extract proposed receipt data. Apple provides Sign in with Apple and App Store services. Payment apps receive details only when you choose to open a handoff.")
-
-                        policySection(title: "4. Storage and Retention", content: "Collaborative records are stored in a protected database. Receipt images, profile photos, and memory photos are kept in private cloud storage and served only after an access check. We retain account content while your account is active. Limited logs and backups may remain temporarily after deletion for security, legal, and disaster-recovery purposes.")
-
-                        policySection(title: "5. Your Choices and Deletion", content: "You can update your profile and payment details, manage camera and photo-library access in iOS Settings, sign out, or permanently delete your account in Cleave Settings. Account deletion removes authentication, database records owned by the account, uploaded media, and account-scoped local data, subject to limited backup retention.")
-
-                        policySection(title: "6. Contact", content: "For access, correction, deletion, support, or privacy questions, email cleave.receipts@gmail.com. We may need to verify your identity before fulfilling a request.")
-
-                        Link("View the full policy online", destination: URL(string: "https://navneetajith-eng.github.io/cleave/privacy/")!)
-                            .font(DesignSystem.titleFont(16))
-                            .foregroundColor(DesignSystem.accentNavy)
-                            .frame(maxWidth: .infinity)
-                            .padding()
-                            .background(DesignSystem.surface)
-                            .clipShape(RoundedRectangle(cornerRadius: 16, style: .continuous))
-                    }
-                    .padding(.horizontal, 30)
-                    .padding(.bottom, 40)
-                }
-            }
-        }
-        .navigationBarHidden(true)
-    }
-
-    private func policySection(title: String, content: String) -> some View {
-        VStack(alignment: .leading, spacing: 8) {
-            Text(title)
-                .font(.system(size: 20, weight: .bold, design: .rounded))
-                .foregroundColor(DesignSystem.bgNavy)
-
-            Text(content)
-                .font(.system(size: 16, weight: .regular, design: .rounded))
-                .foregroundColor(.black.opacity(0.7))
-                .lineSpacing(4)
-        }
-        .padding()
-        .background(Color.white)
-        .cornerRadius(16)
-        .shadow(color: Color.black.opacity(0.05), radius: 10, y: 5)
-    }
-}
-
-struct FAQView: View {
-    @Environment(\.presentationMode) var presentationMode
-
-    var body: some View {
-        ZStack {
-            DesignSystem.canvasBeige.ignoresSafeArea()
-
-            VStack(alignment: .leading, spacing: 20) {
-                // Header
-                HStack {
-                    Button(action: {
-                        presentationMode.wrappedValue.dismiss()
-                    }) {
-                        Image(systemName: "chevron.left.circle.fill")
-                            .font(.system(size: 32))
-                            .foregroundColor(.black.opacity(0.7))
-                    }
-                    Spacer()
-                }
-                .padding(.horizontal, 30)
-                .padding(.top, 20)
-
-                Text("FAQ")
-                    .font(.system(size: 36, weight: .black, design: .rounded))
-                    .foregroundColor(Color.black.opacity(0.85))
-                    .padding(.horizontal, 30)
-
-                ScrollView(showsIndicators: false) {
-                    VStack(alignment: .leading, spacing: 24) {
-                        faqSection(question: "How does the receipt scanning work?", answer: "We use advanced AI (Google Gemini) to instantly parse the items, prices, tax, and tip from any receipt image you capture.")
-
-                        faqSection(question: "Can I edit an item after scanning?", answer: "Yes! During the assignment phase, you can assign items to individuals. Full manual editing of items is planned for a future update.")
-
-                        faqSection(question: "How is tax and tip calculated?", answer: "Tax and tip are proportionally divided based on the subtotal of the items each person was assigned.")
-
-                        faqSection(question: "Is my data secure?", answer: "Absolutely. Your data is stored securely using Supabase and is only accessible by you and your collaborative group members.")
-
-                        faqSection(question: "How do I settle up?", answer: "Choose your region in Settings. Cleave uses Venmo for the United States, Google Pay (UPI) for India, and Aani for the UAE. Cleave hands the settlement to that app; always verify the recipient and amount there.")
-
-                        faqSection(question: "Does Cleave charge payment fees?", answer: "No. Cleave does not process money and charges no settlement fee. The payment provider, bank, card, or transfer option you choose may still charge its own fee, so review the payment app before confirming.")
-                    }
-                    .padding(.horizontal, 30)
-                    .padding(.bottom, 40)
-                }
-            }
-        }
-        .navigationBarHidden(true)
-    }
-
-    private func faqSection(question: String, answer: String) -> some View {
-        VStack(alignment: .leading, spacing: 8) {
-            Text(question)
-                .font(.system(size: 18, weight: .bold, design: .rounded))
-                .foregroundColor(DesignSystem.bgNavy)
-
-            Text(answer)
-                .font(.system(size: 16, weight: .regular, design: .rounded))
-                .foregroundColor(.black.opacity(0.7))
-                .lineSpacing(4)
-        }
-        .padding()
-        .background(Color.white)
-        .cornerRadius(16)
-        .shadow(color: Color.black.opacity(0.05), radius: 10, y: 5)
     }
 }

@@ -1,10 +1,17 @@
 import SwiftUI
 
 enum OnboardingVersion {
-    static let current = 3
+    static let current = 4
+}
+
+enum OnboardingFlow {
+    static func steps(isReplay: Bool) -> [Int] {
+        isReplay ? [0, 1, 5] : [0, 1, 2, 3, 4, 5]
+    }
 }
 
 struct OnboardingView: View {
+    let isReplay: Bool
     let onComplete: () -> Void
 
     @Environment(\.accessibilityReduceMotion) private var reduceMotion
@@ -14,8 +21,17 @@ struct OnboardingView: View {
     @State private var selectedRegion = RegionManager.shared.currentRegion
     @State private var venmoUsername = PaymentPreferences.venmoUsername
     @State private var upiID = PaymentPreferences.upiID
+    @State private var aaniID = PaymentPreferences.aaniID
+    @State private var ageBand = AgePreferences.ageBand
 
-    private let lastStep = 4
+    init(isReplay: Bool = false, onComplete: @escaping () -> Void) {
+        self.isReplay = isReplay
+        self.onComplete = onComplete
+    }
+
+    private var stepOrder: [Int] { OnboardingFlow.steps(isReplay: isReplay) }
+    private var stepIndex: Int { stepOrder.firstIndex(of: step) ?? 0 }
+    private var isLastStep: Bool { stepIndex == stepOrder.count - 1 }
 
     var body: some View {
         ZStack {
@@ -31,6 +47,7 @@ struct OnboardingView: View {
                         case 1: howItWorksPage
                         case 2: regionPage
                         case 3: paymentPage
+                        case 4: agePage
                         default: readyPage
                         }
                     }
@@ -79,11 +96,11 @@ struct OnboardingView: View {
 
     private var header: some View {
         HStack(spacing: 14) {
-            if step > 0 {
+            if stepIndex > 0 {
                 Button {
                     focusedField = nil
                     direction = -1
-                    step -= 1
+                    step = stepOrder[stepIndex - 1]
                     HapticsManager.shared.playImpact(style: .light)
                 } label: {
                     Image(systemName: "chevron.left")
@@ -98,16 +115,16 @@ struct OnboardingView: View {
             }
 
             HStack(spacing: 6) {
-                ForEach(0...lastStep, id: \.self) { index in
+                ForEach(stepOrder.indices, id: \.self) { index in
                     Capsule()
-                        .fill(index <= step ? DesignSystem.accentNavy : Color.black.opacity(0.1))
-                        .frame(maxWidth: index == step ? 34 : 14, maxHeight: 6)
+                        .fill(index <= stepIndex ? DesignSystem.accentNavy : Color.black.opacity(0.1))
+                        .frame(maxWidth: index == stepIndex ? 34 : 14, maxHeight: 6)
                 }
             }
 
             Spacer()
 
-            Text("\(step + 1) / \(lastStep + 1)")
+            Text("\(stepIndex + 1) / \(stepOrder.count)")
                 .font(.custom("AvenirNext-DemiBold", size: 12))
                 .foregroundStyle(.black.opacity(0.45))
                 .frame(width: 40)
@@ -122,6 +139,18 @@ struct OnboardingView: View {
             ReceiptSplitAnimation(reduceMotion: reduceMotion)
                 .frame(height: 300)
                 .accessibilityHidden(true)
+
+            HStack(spacing: 9) {
+                Image("AppLogo")
+                    .resizable()
+                    .scaledToFit()
+                    .frame(width: 40, height: 40)
+                    .clipShape(RoundedRectangle(cornerRadius: 10, style: .continuous))
+                Text("CLEAVE")
+                    .font(DesignSystem.labelFont(12))
+                    .tracking(2.4)
+                    .foregroundStyle(DesignSystem.accentNavy)
+            }
 
             VStack(spacing: 6) {
                 Text("Cleave the debt.")
@@ -240,27 +269,60 @@ struct OnboardingView: View {
                     error: "Enter a UPI ID such as name@bank."
                 )
             case .unitedArabEmirates:
-                HStack(alignment: .top, spacing: 12) {
-                    Image(systemName: "checkmark.shield.fill")
-                        .foregroundStyle(DesignSystem.accentTeal)
-                    Text("Nothing to enter. Cleave copies the amount and opens Aani for you.")
-                        .font(.custom("AvenirNext-Medium", size: 14))
-                        .foregroundStyle(.black.opacity(0.58))
-                        .lineSpacing(3)
-                }
-                .padding(18)
-                .background(.white.opacity(0.58), in: RoundedRectangle(cornerRadius: 18, style: .continuous))
+                paymentField(
+                    label: "AANI ID OR MOBILE",
+                    placeholder: "+971… or your Aani ID",
+                    text: $aaniID,
+                    field: .aani,
+                    prefix: nil,
+                    isValid: aaniID.isEmpty || PaymentPreferences.isValidAani(aaniID),
+                    error: "Enter a valid Aani ID or mobile number."
+                )
             }
 
-            Label(
-                "Cleave checks the format, not ownership. Your handle is shared only with collaborative group members. Cleave never moves money or stores bank credentials.",
-                systemImage: "lock.fill"
-            )
+            Label("Cleave never moves money or stores bank credentials.", systemImage: "lock.fill")
                 .font(.custom("AvenirNext-DemiBold", size: 12))
                 .foregroundStyle(.black.opacity(0.42))
                 .frame(maxWidth: .infinity, alignment: .center)
-                .multilineTextAlignment(.center)
-                .fixedSize(horizontal: false, vertical: true)
+        }
+        .padding(.top, 28)
+    }
+
+    private var agePage: some View {
+        VStack(alignment: .leading, spacing: 24) {
+            pageHeading(
+                eyebrow: "AGE RANGE",
+                title: "Which range are you in?",
+                body: "We ask for an age range—not your birthday—to support age-appropriate access while collecting less personal data."
+            )
+
+            VStack(spacing: 12) {
+                ForEach(AgeBand.allCases) { band in
+                    Button {
+                        ageBand = band
+                        HapticsManager.shared.playImpact(style: .light)
+                    } label: {
+                        HStack {
+                            Text(band.displayName)
+                                .font(.custom("AvenirNext-Heavy", size: 17))
+                            Spacer()
+                            Image(systemName: ageBand == band ? "checkmark.circle.fill" : "circle")
+                                .font(.system(size: 23, weight: .bold))
+                                .foregroundStyle(ageBand == band ? DesignSystem.accentTeal : .black.opacity(0.18))
+                        }
+                        .foregroundStyle(DesignSystem.accentNavy)
+                        .padding(18)
+                        .background(.white.opacity(ageBand == band ? 1 : 0.6), in: RoundedRectangle(cornerRadius: 20, style: .continuous))
+                    }
+                    .buttonStyle(PressScaleButtonStyle())
+                }
+            }
+
+            if ageBand == .under13 {
+                Label("Cleave's internal beta currently supports people age 13 and older.", systemImage: "info.circle.fill")
+                    .font(.custom("AvenirNext-DemiBold", size: 13))
+                    .foregroundStyle(DesignSystem.accentOrange)
+            }
         }
         .padding(.top, 28)
     }
@@ -282,11 +344,11 @@ struct OnboardingView: View {
             }
 
             VStack(spacing: 10) {
-                Text("You’re ready to Cleave.")
+                Text(isReplay ? "You’re all caught up." : "You’re ready to Cleave.")
                     .font(.custom("AvenirNext-Heavy", size: 36))
                     .foregroundStyle(DesignSystem.accentNavy)
                     .multilineTextAlignment(.center)
-                Text("Split here. Settle in \(selectedRegion.settlementMethod.displayName).")
+                Text(isReplay ? "Your account details stayed exactly as you left them." : "Split here. Settle in \(selectedRegion.settlementMethod.displayName).")
                     .onboardingBody()
             }
 
@@ -305,8 +367,8 @@ struct OnboardingView: View {
                 advance()
             } label: {
                 HStack(spacing: 10) {
-                    Text(step == lastStep ? "Start splitting" : continueLabel)
-                    Image(systemName: step == lastStep ? "sparkles" : "arrow.right")
+                    Text(isLastStep ? (isReplay ? "Back to Cleave" : "Start splitting") : continueLabel)
+                    Image(systemName: isLastStep ? "sparkles" : "arrow.right")
                 }
                 .font(.custom("AvenirNext-Heavy", size: 17))
                 .foregroundStyle(.white)
@@ -318,8 +380,8 @@ struct OnboardingView: View {
             .disabled(!canContinue)
             .buttonStyle(PressScaleButtonStyle())
 
-            if step == 3 && !canContinue {
-                Text(selectedRegion == .unitedStates ? "Add your Venmo username to continue" : "Add your UPI ID to continue")
+            if (step == 3 || step == 4) && !canContinue {
+                Text(step == 4 ? "Choose an eligible age range to continue" : paymentRequirementMessage)
                     .font(.custom("AvenirNext-DemiBold", size: 12))
                     .foregroundStyle(.black.opacity(0.45))
             }
@@ -339,11 +401,21 @@ struct OnboardingView: View {
     }
 
     private var canContinue: Bool {
-        step != 3 || PaymentPreferences.isComplete(
-            for: selectedRegion,
-            venmo: venmoUsername,
-            upi: upiID
-        )
+        if step == 3 {
+            let regionComplete = PaymentPreferences.isComplete(
+                for: selectedRegion,
+                venmo: venmoUsername,
+                upi: upiID
+            )
+            let aaniComplete = selectedRegion != .unitedArabEmirates
+                || aaniID.isEmpty
+                || PaymentPreferences.isValidAani(aaniID)
+            return regionComplete && aaniComplete
+        }
+        if step == 4 {
+            return ageBand != nil && ageBand != .under13
+        }
+        return true
     }
 
     private var continueLabel: String {
@@ -351,6 +423,7 @@ struct OnboardingView: View {
         case 0: return "Show me how"
         case 2: return "Use \(selectedRegion.displayName)"
         case 3: return selectedRegion == .unitedArabEmirates ? "Looks good" : "Save payment method"
+        case 4: return "Confirm age range"
         default: return "Continue"
         }
     }
@@ -359,7 +432,7 @@ struct OnboardingView: View {
         switch selectedRegion {
         case .unitedStates: return "Your Venmo"
         case .india: return "Your UPI ID"
-        case .unitedArabEmirates: return "Aani is ready"
+        case .unitedArabEmirates: return "Your Aani"
         }
     }
 
@@ -367,7 +440,15 @@ struct OnboardingView: View {
         switch selectedRegion {
         case .unitedStates: return "Used to prepare a Venmo handoff."
         case .india: return "Any valid UPI ID works with Google Pay."
-        case .unitedArabEmirates: return "No payment details needed."
+        case .unitedArabEmirates: return "Add an Aani ID if you want friends to find the right recipient faster."
+        }
+    }
+
+    private var paymentRequirementMessage: String {
+        switch selectedRegion {
+        case .unitedStates: return "Add your Venmo username to continue"
+        case .india: return "Add your UPI ID to continue"
+        case .unitedArabEmirates: return "Check the Aani ID if you entered one"
         }
     }
 
@@ -502,13 +583,16 @@ struct OnboardingView: View {
     private func advance() {
         guard canContinue else { return }
         focusedField = nil
-        HapticsManager.shared.playImpact(style: step == lastStep ? .medium : .light)
+        HapticsManager.shared.playImpact(style: isLastStep ? .medium : .light)
 
-        if step < lastStep {
+        if !isLastStep {
             direction = 1
-            step += 1
+            step = stepOrder[stepIndex + 1]
         } else {
-            PaymentPreferences.save(region: selectedRegion, venmo: venmoUsername, upi: upiID)
+            if !isReplay {
+                PaymentPreferences.save(region: selectedRegion, venmo: venmoUsername, upi: upiID, aani: aaniID)
+                AgePreferences.ageBand = ageBand
+            }
             onComplete()
         }
     }
@@ -517,6 +601,7 @@ struct OnboardingView: View {
 private enum PaymentField: Hashable {
     case venmo
     case upi
+    case aani
 }
 
 private struct ReceiptSplitAnimation: View {

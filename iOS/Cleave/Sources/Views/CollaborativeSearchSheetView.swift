@@ -44,7 +44,7 @@ struct CollaborativeSearchSheetView: View {
                     HStack {
                         ForEach(selectedMembers) { member in
                             HStack {
-                                Text(member.username ?? "Unknown")
+                                Text(member.preferredName)
                                     .font(DesignSystem.titleFont(14))
                                     .foregroundColor(.white)
                                 Button(action: {
@@ -110,15 +110,18 @@ struct CollaborativeSearchSheetView: View {
                                     .fill(DesignSystem.accentTeal)
                                     .frame(width: 40, height: 40)
                                     .overlay(
-                                        Text(String(profile.username?.prefix(1).uppercased() ?? "?"))
+                                        Text(String(profile.preferredName.prefix(1)).uppercased())
                                             .foregroundColor(.black)
                                             .font(.headline)
                                     )
 
                                 VStack(alignment: .leading) {
-                                    Text(profile.username ?? "Unknown")
+                                    Text(profile.preferredName)
                                         .font(DesignSystem.titleFont(16))
                                         .foregroundColor(DesignSystem.ink)
+                                    Text("@\(profile.username ?? "member")")
+                                        .font(DesignSystem.bodyFont(12))
+                                        .foregroundColor(DesignSystem.inkMuted)
                                 }
 
                                 Spacer()
@@ -163,23 +166,28 @@ struct CollaborativeSearchSheetView: View {
         }
         .frame(maxHeight: .infinity)
         .onAppear {
-            // Load recently discoverable profiles before the first search.
-            performSearch(query: "")
+            loadFriends()
         }
     }
 
     private func performSearch(query: String) {
         searchTask?.cancel()
+        let normalizedQuery = query.trimmingCharacters(in: .whitespacesAndNewlines)
+        guard normalizedQuery.count >= 2 else {
+            if normalizedQuery.isEmpty {
+                loadFriends()
+            } else {
+                searchResults = []
+                isSearching = false
+            }
+            return
+        }
         searchTask = Task {
             isSearching = true
             try? await Task.sleep(nanoseconds: 300_000_000)
             guard !Task.isCancelled else { return }
             do {
-                if query.isEmpty {
-                    searchResults = try await CleaveAPI.shared.searchProfiles(query: "")
-                } else {
-                    searchResults = try await CleaveAPI.shared.searchProfiles(query: query)
-                }
+                searchResults = try await CleaveAPI.shared.searchProfiles(query: normalizedQuery)
             } catch {
                 if !Task.isCancelled {
                     print("Search error: \(error)")
@@ -188,6 +196,19 @@ struct CollaborativeSearchSheetView: View {
             if !Task.isCancelled {
                 isSearching = false
             }
+        }
+    }
+
+    private func loadFriends() {
+        searchTask?.cancel()
+        searchTask = Task {
+            isSearching = true
+            do {
+                searchResults = try await CleaveAPI.shared.fetchFriends()
+            } catch {
+                if !Task.isCancelled { searchResults = [] }
+            }
+            if !Task.isCancelled { isSearching = false }
         }
     }
 }

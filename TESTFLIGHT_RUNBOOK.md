@@ -36,18 +36,17 @@ signing secret into Google Cloud.
 
 1. Open the Supabase dashboard and select the Cleave project.
 2. Open **SQL Editor** and create a new query.
-3. Confirm the migration history includes `001_authoritative_api.sql`,
-   `002_release_hardening.sql`, `003_profiles_and_inbox.sql`, and
-   `004_backend_only_data_api.sql`. Apply only missing migrations, in order.
+3. Confirm the migration history includes every file from
+   `001_authoritative_api.sql` through
+   `011_display_names_and_receipt_currencies.sql`. Apply only missing
+   migrations, in filename order. Migration 010 is required before deploying
+   the individual item-claim API; migration 011 is required before deploying
+   display names, friend profiles, or receipt-currency support.
 4. Open **Table Editor** and confirm these tables exist:
    `profiles`, `groups`, `group_members`, `receipts`, `receipt_items`,
-   `receipt_assignments`, `receipt_memories`, `receipt_experiences`, and
-   `settlements`.
-5. Confirm Row Level Security is enabled for all public application tables.
-6. Open **Authentication → URL Configuration** and add
-   `cleave://auth-callback` to **Redirect URLs**. This custom URL is required
-   for password-recovery emails to return users to the password-update screen
-   in the iOS app.
+   `receipt_assignments`, `receipt_participants`, `receipt_memories`,
+   `receipt_experiences`, and `settlements`.
+6. Confirm Row Level Security is enabled for all public application tables.
 
 Do not run `schema.sql` over an existing database. It is the reference schema
 for a new project.
@@ -148,6 +147,22 @@ Cloud Run by `.github/workflows/deploy.yml`; they are not duplicated in GitHub.
 Push to `main` only after reviewing the changes. The workflow runs backend tests,
 builds the image, deploys it, and verifies `/health`.
 
+Before distributing any matching iOS build, require both production contract
+checks to pass:
+
+```sh
+curl --fail --silent https://YOUR_CLOUD_RUN_HOST/health
+curl --fail --silent https://YOUR_CLOUD_RUN_HOST/api/capabilities
+```
+
+`/health` must report `"status":"ok"` and `"api_version":3`.
+`/api/capabilities` must report `"api_version":3` with receipt review,
+payment review, unified profile settings, scan idempotency, individual receipt
+claims, receipt deletion, group leave, display names, receipt currencies, and
+friend profiles enabled. A health
+response containing only `{"status":"ok"}` is the legacy API and must block the
+TestFlight release.
+
 The workflow updates only the container image and preserves Terraform-managed
 environment and secret bindings. Secret versions are pinned in Terraform; test
 a rotated version on a zero-traffic tagged revision before changing the pinned
@@ -180,14 +195,32 @@ Use two real test accounts on two devices or one device plus a second simulator:
 
 1. Sign in with Apple as account A and account B.
 2. A creates a group and adds B.
-3. A scans a receipt; verify parsing, manual edits, and item assignment.
-4. B opens the same group and sees the server-saved receipt and balances.
-5. Save a rating and memory photo; verify both persist after relaunch and the
-   photo is visible only to group members.
-6. Verify a non-member cannot load the group receipt or photo.
-7. Delete a disposable test account in Settings; verify it is signed out and
+3. B scans a receipt in A's group. Verify B—not group creator A—is listed as the
+   receipt admin.
+4. Interrupt the first upload after submission, then retry the saved draft.
+   Verify only one receipt exists and the same draft completes instead of
+   creating a duplicate.
+5. B chooses only B's items and reaches the summary while A is still shown as
+   pending. A then chooses A's own items. Verify a shared item is divided across
+   both claimants and neither person's save overwrites the other.
+6. Verify payment marking remains locked while a participant is pending or an
+   item is unclaimed. B can use Admin corrections after everyone submits, but A
+   cannot edit other members' allocations.
+7. A marks their payment as sent and B confirms it. Verify B's own share is
+   shown as the receipt payer's portion and never as a payment to themselves.
+8. Relaunch both clients. Verify claims, pending status, payment state, admin
+   label, and balances converge without manual refresh.
+9. Each account saves a different rating and memory photo. Verify Moments shows
+   who added each rating/photo and remains limited to group members.
+10. Long-press the receipt as A and verify deletion is unavailable. Long-press
+   as admin B, cancel once, then delete and verify it disappears for both users.
+11. Leave the group as its creator while another member remains. Verify the
+   group stays visible to remaining members, ownership transfers, pending claims
+   from the leaver no longer block settlement, and no client offers group deletion.
+12. Verify a non-member cannot load the group receipt, review state, or photo.
+13. Delete a disposable test account in Settings; verify it is signed out and
    cannot sign back into the deleted Cleave account without creating a new one.
-8. Confirm the deployed `/health` endpoint returns HTTP 200.
+14. Re-run both production contract checks from section 5.
 
 Do not automatically mark a Venmo handoff as settled. The app cannot verify that
 an external payment completed; settlement confirmation needs a deliberate
@@ -217,12 +250,12 @@ product decision or a payment-provider callback.
   and authenticated; Application Default Credentials still require completion.
 - The Release xcconfig has the Supabase publishable key and deployed API URL;
   its Apple Team ID is still unset.
-- The database password is rotated. Cloud Run revision 15 uses the dedicated
-  runtime identity and pinned Secret Manager versions for database, Gemini, and
-  Supabase credentials.
-- Support and privacy-policy pages are published at
-  `https://navneetajith-eng.github.io/cleave/support/` and
-  `https://navneetajith-eng.github.io/cleave/privacy/`.
-- `cleave://auth-callback` still needs to be added to the Supabase Auth redirect
-  allowlist if it is not already present.
+- Production migration 010 is deployed. Every client release must still be
+  paired with a backend whose capability contract includes individual claims,
+  receipt deletion, and group leave.
+- Cloud Build API is enabled, but the current Google account cannot submit a
+  build. Grant the deployment identity the documented build/deploy permissions
+  or run the authenticated GitHub deployment workflow; do not broaden the
+  runtime service account's secret access.
+- A public support URL and privacy-policy URL still need to be chosen.
 - Settlement confirmation and crash/error monitoring still need product choices.

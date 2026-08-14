@@ -196,7 +196,29 @@ def print_check(name: str, elapsed_ms: int | None = None) -> None:
 
 def run(client: Client, state: RunState, image_path: Path, exercise_parser: bool) -> None:
     health = expect(client.request("GET", client.api_base.removesuffix("api/") + "health"), {200}, "health")
-    assert_true(health.json() == {"status": "ok"}, "health returned an unexpected payload")
+    health_payload = health.json()
+    assert_true(
+        health_payload.get("status") == "ok" and health_payload.get("api_version") == 3,
+        "health returned an unexpected payload",
+    )
+    capabilities = expect(client.api("GET", "capabilities"), {200}, "capabilities").json()
+    required_features = {
+        "receipt_review",
+        "payment_status",
+        "profile_settings",
+        "scan_idempotency",
+        "individual_receipt_claims",
+        "receipt_deletion",
+        "group_leave",
+        "display_names",
+        "receipt_currencies",
+        "friend_profiles",
+    }
+    assert_true(
+        capabilities.get("api_version") == 3
+        and required_features.issubset(set(capabilities.get("features", []))),
+        "capabilities are missing required release features",
+    )
     print_check("health and database readiness", health.elapsed_ms)
 
     expect(client.api("GET", "groups"), {401}, "missing-token authorization boundary")
@@ -220,12 +242,20 @@ def run(client: Client, state: RunState, image_path: Path, exercise_parser: bool
                 "POST",
                 "profiles/bootstrap",
                 user=user,
-                json_body={"username": user.username, "email": user.email},
+                json_body={
+                    "username": user.username,
+                    "display_name": f"Smoke {label}",
+                    "email": user.email,
+                },
             ),
             {200},
             f"bootstrap profile {label}",
         )
         assert_true(bootstrap.json()["id"] == user.id, f"profile {label} does not match auth identity")
+        assert_true(
+            bootstrap.json()["display_name"] == f"Smoke {label}",
+            f"profile {label} display name did not persist",
+        )
     a, b, outsider = state.users
     print_check("three disposable auth identities and profiles")
 
@@ -264,6 +294,12 @@ def run(client: Client, state: RunState, image_path: Path, exercise_parser: bool
     friends_b = expect(client.api("GET", "friends", user=b), {200}, "fetch B friends").json()
     assert_true(b.id in {profile["id"] for profile in friends_a}, "B is missing from A's friends")
     assert_true(a.id in {profile["id"] for profile in friends_b}, "A is missing from B's friends")
+    friend_b = expect(client.api("GET", f"friends/{b.id}", user=a), {200}, "fetch B friend profile").json()
+    assert_true(
+        friend_b["display_name"] == "Smoke B" and friend_b["username"] == b.username,
+        "friend profile lost display name or username",
+    )
+    expect(client.api("GET", f"friends/{b.id}", user=outsider), {404}, "hide B from non-friend")
 
     inbox = expect(client.api("GET", "inbox", user=b), {200}, "fetch B inbox").json()
     invitation = next((item for item in inbox if item["group_id"] == state.group_id), None)
@@ -282,6 +318,7 @@ def run(client: Client, state: RunState, image_path: Path, exercise_parser: bool
                 "tax_amount": 1.01,
                 "tip_amount": 2.02,
                 "discount_amount": 0.03,
+                "currency_code": "INR",
                 "items": [
                     {"name": "Starter", "price": 10.01},
                     {"name": "Main", "price": 20.02},
@@ -294,6 +331,7 @@ def run(client: Client, state: RunState, image_path: Path, exercise_parser: bool
     )
     receipt = manual.json()
     receipt_id = receipt["id"]
+    assert_true(receipt["currency_code"] == "INR", "manual receipt currency did not persist")
     edited_items = [
         {"id": item["id"], "name": f"{item['name']} edited", "price": item["price"]}
         for item in receipt["items"]
@@ -317,6 +355,31 @@ def run(client: Client, state: RunState, image_path: Path, exercise_parser: bool
     assert_true(edited.json()["title"] == "Smoke dinner edited", "receipt edit did not persist")
 
     items = edited.json()["items"]
+    assert_true(
+        {participant["user_id"] for participant in edited.json()["participants"]} == {a.id, b.id},
+        "receipt participant snapshot is incomplete",
+    )
+    expect(
+        client.api(
+            "PUT",
+            f"receipts/{receipt_id}/claim",
+            user=a,
+            json_body={"item_ids": [items[0]["id"], items[2]["id"]]},
+        ),
+        {200},
+        "submit A claims",
+    )
+    expect(
+        client.api(
+            "PUT",
+            f"receipts/{receipt_id}/claim",
+            user=b,
+            json_body={"item_ids": [items[1]["id"], items[2]["id"]]},
+        ),
+        {200},
+        "submit B claims",
+    )
+
     assignment_payload = {
         "items": [
             {"item_id": items[0]["id"], "user_ids": [a.id]},
@@ -324,8 +387,6 @@ def run(client: Client, state: RunState, image_path: Path, exercise_parser: bool
             {"item_id": items[2]["id"], "user_ids": [a.id, b.id]},
         ]
     }
-    expect(client.api("PATCH", f"receipts/{receipt_id}/assignments", user=a, json_body=assignment_payload), {200}, "save assignments")
-
     forbidden_assignment = json.loads(json.dumps(assignment_payload))
     forbidden_assignment["items"][0]["user_ids"] = [outsider.id]
     expect(
@@ -339,11 +400,16 @@ def run(client: Client, state: RunState, image_path: Path, exercise_parser: bool
     assert_true(balances_a.json() == balances_b.json(), "members received different balances")
     allocated = sum((money(balance["total_owed"]) for balance in balances_a.json()), Decimal("0.00"))
     assert_true(allocated == Decimal("63.06"), f"allocated total {allocated} does not reconcile to 63.06")
-    print_check("receipt editing, assignments, and exact cent reconciliation")
+    print_check("individual receipt claims and exact cent reconciliation")
 
     receipts_b = expect(client.api("GET", f"groups/{state.group_id}/receipts", user=b), {200}, "fetch B receipts")
     persisted = next((value for value in receipts_b.json() if value["id"] == receipt_id), None)
-    assert_true(persisted is not None and persisted["title"] == "Smoke dinner edited", "B cannot see the edited receipt")
+    assert_true(
+        persisted is not None
+        and persisted["title"] == "Smoke dinner edited"
+        and persisted["currency_code"] == "INR",
+        "B cannot see the edited receipt with its original currency",
+    )
     expect(client.api("GET", f"groups/{state.group_id}/receipts", user=outsider), {403}, "block outsider receipt list")
     expect(client.api("GET", f"receipts/{receipt_id}/balances", user=outsider), {403}, "block outsider balances")
     print_check("receipt visibility and non-member authorization")
@@ -429,7 +495,7 @@ def cleanup(client: Client, state: RunState) -> list[str]:
     errors: list[str] = []
     owner = next((user for user in state.users if user.label == "A"), None)
     if state.group_id and owner and owner.token:
-        response = client.api("DELETE", f"groups/{state.group_id}", user=owner)
+        response = client.api("POST", f"groups/{state.group_id}/leave", user=owner)
         if response.status not in {204, 404}:
             errors.append(f"group cleanup returned HTTP {response.status}")
     for user in reversed(state.users):

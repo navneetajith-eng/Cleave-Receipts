@@ -1,4 +1,4 @@
-from sqlalchemy import Boolean, Column, DateTime, ForeignKey, Integer, Numeric, String, Uuid, func
+from sqlalchemy import Boolean, Column, DateTime, ForeignKey, Integer, Numeric, String, UniqueConstraint, Uuid, func
 from sqlalchemy.orm import relationship
 
 from app.db.database import Base
@@ -10,10 +10,15 @@ class Profile(Base):
     id = Column(Uuid(as_uuid=False), primary_key=True, index=True)
     email = Column(String, unique=True, index=True, nullable=False)
     username = Column(String, unique=True, index=True, nullable=False)
+    display_name = Column(String(80), nullable=True)
     avatar_url = Column(String, nullable=True)
     region_code = Column(String(2), nullable=True)
     venmo_username = Column(String(64), nullable=True)
     upi_id = Column(String(255), nullable=True)
+    aani_id = Column(String(128), nullable=True)
+    age_band = Column(String(16), nullable=True)
+    avatar_visibility = Column(String(20), default="shared_groups", nullable=False)
+    payment_visibility = Column(String(20), default="shared_groups", nullable=False)
     created_at = Column(DateTime, default=func.now(), nullable=False)
 
 
@@ -43,7 +48,7 @@ class GroupMember(Base):
     __tablename__ = "group_members"
 
     group_id = Column(Uuid(as_uuid=False), ForeignKey("groups.id", ondelete="CASCADE"), primary_key=True)
-    user_id = Column(Uuid(as_uuid=False), ForeignKey("profiles.id", ondelete="CASCADE"), primary_key=True)
+    user_id = Column(Uuid(as_uuid=False), ForeignKey("profiles.id", ondelete="CASCADE"), primary_key=True, index=True)
     joined_at = Column(DateTime, default=func.now(), nullable=False)
 
     group = relationship("Group", back_populates="members")
@@ -62,6 +67,7 @@ class Receipt(Base):
     tip_amount = Column(Numeric(12, 2), default=0, nullable=False)
     discount_amount = Column(Numeric(12, 2), default=0, nullable=False)
     image_url = Column(String, nullable=True)
+    client_request_id = Column(Uuid(as_uuid=False), unique=True, nullable=True, index=True)
     created_at = Column(DateTime, default=func.now(), nullable=False)
 
     group = relationship("Group", back_populates="receipts")
@@ -81,6 +87,12 @@ class Receipt(Base):
         back_populates="receipt",
         cascade="all, delete-orphan",
     )
+    participants = relationship(
+        "ReceiptParticipant",
+        back_populates="receipt",
+        cascade="all, delete-orphan",
+        lazy="selectin",
+    )
 
 
 class ReceiptItem(Base):
@@ -99,6 +111,10 @@ class ReceiptItem(Base):
         cascade="all, delete-orphan",
     )
 
+    @property
+    def assigned_user_ids(self) -> list[str]:
+        return sorted(assignment.user_id for assignment in self.assignments)
+
 
 class ReceiptAssignment(Base):
     __tablename__ = "receipt_assignments"
@@ -108,6 +124,19 @@ class ReceiptAssignment(Base):
 
     item = relationship("ReceiptItem", back_populates="assignments")
     user = relationship("Profile")
+
+
+class ReceiptParticipant(Base):
+    __tablename__ = "receipt_participants"
+
+    receipt_id = Column(Uuid(as_uuid=False), ForeignKey("receipts.id", ondelete="CASCADE"), primary_key=True)
+    user_id = Column(Uuid(as_uuid=False), ForeignKey("profiles.id", ondelete="CASCADE"), primary_key=True, index=True)
+    status = Column(String(16), default="pending", nullable=False)
+    submitted_at = Column(DateTime, nullable=True)
+    created_at = Column(DateTime, default=func.now(), nullable=False)
+
+    receipt = relationship("Receipt", back_populates="participants")
+    user = relationship("Profile", lazy="joined")
 
 
 class ReceiptMemory(Base):
@@ -138,17 +167,23 @@ class ReceiptExperience(Base):
 
 class Settlement(Base):
     __tablename__ = "settlements"
+    __table_args__ = (
+        UniqueConstraint("receipt_id", "from_user_id", "to_user_id", name="settlements_payment_claim_key"),
+    )
 
     id = Column(Uuid(as_uuid=False), primary_key=True, index=True)
     receipt_id = Column(Uuid(as_uuid=False), ForeignKey("receipts.id", ondelete="CASCADE"), nullable=False)
     from_user_id = Column(Uuid(as_uuid=False), ForeignKey("profiles.id", ondelete="CASCADE"), nullable=False)
     to_user_id = Column(Uuid(as_uuid=False), ForeignKey("profiles.id", ondelete="CASCADE"), nullable=False)
     amount = Column(Numeric(12, 2), nullable=False)
-    currency_code = Column(String(3), default="USD", nullable=False)
-    status = Column(String(16), default="initiated", nullable=False)
-    initiated_at = Column(DateTime, default=func.now(), nullable=False)
-    confirmed_at = Column(DateTime, nullable=True)
+    status = Column(String(16), default="pending", nullable=False)
     settled_at = Column(DateTime, default=func.now(), nullable=False)
+    confirmed_at = Column(DateTime, nullable=True)
+    reviewed_by = Column(
+        Uuid(as_uuid=False),
+        ForeignKey("profiles.id", ondelete="SET NULL"),
+        nullable=True,
+    )
 
 
 class InboxItem(Base):
