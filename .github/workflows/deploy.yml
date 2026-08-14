@@ -31,6 +31,8 @@ jobs:
           cache-dependency-path: Backend/requirements.txt
       - name: Install dependencies
         run: pip install -r Backend/requirements.txt
+      - name: Validate database migrations
+        run: python Backend/scripts/validate_migrations.py
       - name: Run backend tests
         run: python -m pytest Backend/tests -q
 

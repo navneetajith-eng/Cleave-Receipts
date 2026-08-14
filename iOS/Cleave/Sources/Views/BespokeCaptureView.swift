@@ -156,16 +156,12 @@ struct BespokeCaptureView: View {
                     .transition(.move(edge: .bottom).combined(with: .opacity))
                 } else {
                     HStack(spacing: 12) {
-                        PhotosPicker(selection: $selectedPhotoItem, matching: .images) {
+                        PhotosPicker(selection: $selectedPhotoItem, matching: .images, preferredItemEncoding: .compatible) {
                             captureChoice(icon: "photo.on.rectangle", title: "Photo library", prominent: false)
                         }
                         .onChange(of: selectedPhotoItem) { _, newItem in
-                            Task {
-                                if let data = try? await newItem?.loadTransferable(type: Data.self),
-                                   let image = UIImage(data: data) {
-                                    await uploadAndParseImage(image)
-                                }
-                            }
+                            guard let newItem else { return }
+                            Task { await importSelectedPhoto(newItem) }
                         }
 
                         Button(action: {
@@ -190,9 +186,22 @@ struct BespokeCaptureView: View {
         .onChange(of: scannedImage) { _, newImage in
             if let image = newImage {
                 Task {
-                    await uploadAndParseImage(image)
+                    await uploadAndParseImage(image.cleavePreparedForUpload())
+                    scannedImage = nil
                 }
             }
+        }
+    }
+
+    @MainActor
+    private func importSelectedPhoto(_ item: PhotosPickerItem) async {
+        defer { selectedPhotoItem = nil }
+        do {
+            let image = try await PhotoImport.loadImage(from: item)
+            await uploadAndParseImage(image.cleavePreparedForUpload())
+        } catch {
+            isScanning = false
+            ErrorManager.shared.showError(error.localizedDescription)
         }
     }
 
@@ -243,6 +252,7 @@ struct BespokeCaptureView: View {
                 if DemoMode.isEnabled {
                     parsed = ParsedReceiptResponse(
                         vendorName: "Demo Market",
+                        currencyCode: nil,
                         tax: 2.35,
                         tip: 0,
                         discount: 1,

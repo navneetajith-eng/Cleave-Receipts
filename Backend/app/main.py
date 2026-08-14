@@ -79,6 +79,15 @@ def read_root():
 
 @app.get("/health")
 def health(db: Session = Depends(get_db)):
+    return database_readiness(db)
+
+
+@app.get("/ready")
+def ready(db: Session = Depends(get_db)):
+    return database_readiness(db)
+
+
+def database_readiness(db: Session):
     try:
         db.execute(text("SELECT 1"))
         # Readiness includes the release schema, not merely a reachable

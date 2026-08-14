@@ -321,7 +321,7 @@ struct BespokeBalancesView: View {
                             // Photos
                             ScrollView(.horizontal, showsIndicators: false) {
                                 HStack(spacing: 15) {
-                                    PhotosPicker(selection: $selectedPhotoItems, maxSelectionCount: 5, matching: .images) {
+                                    PhotosPicker(selection: $selectedPhotoItems, maxSelectionCount: 5, matching: .images, preferredItemEncoding: .compatible) {
                                         VStack {
                                             Image(systemName: "camera.fill")
                                                 .font(.system(size: 24))
@@ -337,8 +337,14 @@ struct BespokeBalancesView: View {
                                         Task {
                                             selectedPhotos = []
                                             for item in items {
-                                                if let data = try? await item.loadTransferable(type: Data.self) {
-                                                    selectedPhotos.append(data)
+                                                do {
+                                                    let image = try await PhotoImport.loadImage(from: item)
+                                                        .cleavePreparedForUpload(maxDimension: 1_600)
+                                                    if let data = image.jpegData(compressionQuality: 0.84) {
+                                                        selectedPhotos.append(data)
+                                                    }
+                                                } catch {
+                                                    ErrorManager.shared.showError(error.localizedDescription)
                                                 }
                                             }
                                         }

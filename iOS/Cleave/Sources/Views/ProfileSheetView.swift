@@ -172,11 +172,14 @@ struct ProfileSheetView: View {
         .onChange(of: selectedPhoto) { _, item in
             guard let item else { return }
             Task {
-                guard let data = try? await item.loadTransferable(type: Data.self),
-                      let image = UIImage(data: data) else { return }
-                await MainActor.run {
+                defer { selectedPhoto = nil }
+                do {
+                    let image = try await PhotoImport.loadImage(from: item)
+                        .cleavePreparedForUpload(maxDimension: 1_200)
                     avatarImage = image
                     pendingAvatarImage = image
+                } catch {
+                    ErrorManager.shared.showError(error.localizedDescription)
                 }
             }
         }
@@ -198,7 +201,7 @@ struct ProfileSheetView: View {
             .frame(width: 104, height: 104)
             .clipShape(Circle())
 
-            PhotosPicker(selection: $selectedPhoto, matching: .images) {
+            PhotosPicker(selection: $selectedPhoto, matching: .images, preferredItemEncoding: .compatible) {
                 Label("Change photo", systemImage: "camera.fill")
                     .font(.system(size: 15, weight: .bold, design: .rounded))
                     .foregroundColor(DesignSystem.accentNavy)

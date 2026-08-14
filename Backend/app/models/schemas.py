@@ -221,7 +221,7 @@ class ParsedReceipt(BaseModel):
     tax: float = Field(ge=0, le=1_000_000)
     tip: float = Field(ge=0, le=1_000_000)
     discount: float = Field(ge=0, le=1_000_000)
-    total: float = Field(ge=0, le=1_000_000)
+    total: float = Field(ge=0.01, le=1_000_000)
     line_items: List[LineItemBase]
 
 

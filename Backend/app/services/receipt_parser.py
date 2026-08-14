@@ -1,3 +1,4 @@
+import logging
 import os
 
 from dotenv import load_dotenv
@@ -5,6 +6,8 @@ from dotenv import load_dotenv
 from app.models.schemas import ParsedReceipt
 
 load_dotenv()
+
+logger = logging.getLogger(__name__)
 
 def parseReceiptImage(image_bytes: bytes, mime_type: str = "image/jpeg") -> ParsedReceipt:
     """
@@ -69,6 +72,7 @@ def parseReceiptImage(image_bytes: bytes, mime_type: str = "image/jpeg") -> Pars
     except errors.APIError as error:
         raise ValueError("Receipt scanning is temporarily unavailable") from error
     except Exception as error:
+        logger.exception("Receipt parser failed: %s", type(error).__name__)
         raise ValueError(
             "We couldn't read that receipt. Try a clearer, well-lit photo."
         ) from error

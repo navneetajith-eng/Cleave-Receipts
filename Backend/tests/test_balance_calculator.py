@@ -201,4 +201,6 @@ def test_balance_query_count_does_not_grow_with_item_count(db_session):
         event.remove(engine, "before_cursor_execute", count_query)
 
     assert balances[0].items_total == 12
-    assert query_count <= 3
+    # Receipt totals, assignments, and confirmed settlements are fetched in a
+    # fixed number of queries regardless of the number of line items.
+    assert query_count <= 4

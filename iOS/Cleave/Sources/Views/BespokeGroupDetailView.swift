@@ -500,6 +500,7 @@ struct BespokeGroupDetailView: View {
                 if DemoMode.isEnabled {
                     parsed = ParsedReceiptResponse(
                         vendorName: "Demo Market",
+                        currencyCode: nil,
                         tax: 2.35,
                         tip: 0,
                         discount: 1,

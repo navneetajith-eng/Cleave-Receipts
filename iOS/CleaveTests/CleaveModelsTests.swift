@@ -224,6 +224,28 @@ final class CleaveModelsTests: XCTestCase {
         XCTAssertEqual(receipt.currency, .aed)
     }
 
+    func testParsedReceiptCurrencyDecodesFromScannerResponse() throws {
+        let json = """
+        {
+          "vendor_name": "Dubai lunch",
+          "currency_code": "AED",
+          "tax": 2.5,
+          "tip": 0,
+          "discount": 0,
+          "total": 22.5,
+          "line_items": [
+            { "description": "Burger", "price": 20 }
+          ]
+        }
+        """
+        let decoder = JSONDecoder()
+        decoder.keyDecodingStrategy = .convertFromSnakeCase
+
+        let receipt = try decoder.decode(ParsedReceiptResponse.self, from: Data(json.utf8))
+
+        XCTAssertEqual(receipt.currencyCode, .aed)
+    }
+
     func testReceiptDecodesPrivateMemoryMetadata() throws {
         let receiptID = UUID()
         let memoryID = UUID()

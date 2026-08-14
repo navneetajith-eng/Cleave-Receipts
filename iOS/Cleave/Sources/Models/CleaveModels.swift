@@ -195,7 +195,7 @@ struct ParsedReceiptResponse: Codable, Equatable {
     }
 
     let vendorName: String
-    let currencyCode: Currency? = nil
+    let currencyCode: Currency?
     let tax: Double
     let tip: Double
     let discount: Double
