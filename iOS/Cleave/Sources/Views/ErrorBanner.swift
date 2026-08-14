@@ -14,7 +14,7 @@ struct ErrorBanner: View {
                     .font(.system(size: 20))
 
                 Text(message)
-                    .font(.system(.subheadline, design: .rounded))
+                    .font(DesignSystem.bodyFont(14))
                     .foregroundColor(.white)
                     .multilineTextAlignment(.leading)
 
@@ -48,6 +48,10 @@ final class ErrorManager: ObservableObject {
     private var dismissTask: Task<Void, Never>?
 
     func showError(_ message: String) {
+        let normalized = message.trimmingCharacters(in: .whitespacesAndNewlines).lowercased()
+        guard normalized != "cancelled", normalized != "canceled", !normalized.contains("cancelled") else {
+            return
+        }
         dismissTask?.cancel()
         self.errorMessage = message
         withAnimation(.spring()) {

@@ -5,11 +5,22 @@ import mimetypes
 import os
 import uuid
 from pathlib import Path
+from pathlib import PurePosixPath
 
 from google.cloud import storage
 
 
 logger = logging.getLogger(__name__)
+ALLOWED_STORAGE_FOLDERS = {"avatars", "memories", "receipts"}
+
+
+def _safe_object_name(object_name: str) -> str | None:
+    if not object_name or object_name.startswith(("http://", "https://", "/")):
+        return None
+    path = PurePosixPath(object_name)
+    if ".." in path.parts or len(path.parts) != 2 or path.parts[0] not in ALLOWED_STORAGE_FOLDERS:
+        return None
+    return str(path)
 
 
 def _bucket_name() -> str:
@@ -23,9 +34,15 @@ def _local_storage_dir() -> Path:
 
 
 def _use_local_storage() -> bool:
-    # Local development has no GCS bucket configured. Production sets
-    # GCS_BUCKET_NAME and continues to use the private Cloud Storage bucket.
-    return not bool(_bucket_name())
+    # A managed deployment must never report a successful upload to ephemeral
+    # disk when its bucket configuration is missing. Local development keeps
+    # the filesystem fallback for an easy offline setup.
+    is_managed_runtime = bool(os.environ.get("K_SERVICE"))
+    environment = os.environ.get("ENVIRONMENT", "").strip().lower()
+    return not bool(_bucket_name()) and not is_managed_runtime and environment not in {
+        "production",
+        "staging",
+    }
 
 
 def upload_image_to_gcs(
@@ -42,12 +59,17 @@ def upload_image_to_gcs(
         "image/heif": "heif",
     }.get(mime_type, "bin")
     safe_folder = folder.strip("/") or "receipts"
+    if safe_folder not in ALLOWED_STORAGE_FOLDERS:
+        raise ValueError("Unsupported private storage folder")
     object_name = f"{safe_folder}/{uuid.uuid4()}.{extension}"
     if _use_local_storage():
         path = _local_storage_dir() / object_name
         path.parent.mkdir(parents=True, exist_ok=True)
         path.write_bytes(image_bytes)
         return object_name
+    if not _bucket_name():
+        logger.error("GCS_BUCKET_NAME is required outside local development")
+        return ""
     try:
         client = storage.Client()
         blob = client.bucket(_bucket_name()).blob(object_name)
@@ -60,13 +82,17 @@ def upload_image_to_gcs(
 
 def download_image_from_gcs(object_name: str) -> tuple[bytes, str] | None:
     """Download a private image after the API has authorized the caller."""
-    if not object_name or object_name.startswith(("http://", "https://")):
+    object_name = _safe_object_name(object_name)
+    if object_name is None:
         return None
     if _use_local_storage():
         path = _local_storage_dir() / object_name
         if not path.is_file():
             return None
         return path.read_bytes(), mimetypes.guess_type(path.name)[0] or "application/octet-stream"
+    if not _bucket_name():
+        logger.error("GCS_BUCKET_NAME is required outside local development")
+        return None
     try:
         client = storage.Client()
         blob = client.bucket(_bucket_name()).blob(object_name)
@@ -80,9 +106,9 @@ def download_image_from_gcs(object_name: str) -> tuple[bytes, str] | None:
 def delete_images_from_gcs(object_names: list[str]) -> bool:
     """Delete private objects and report whether every requested object was removed."""
     valid_names = {
-        name
+        safe_name
         for name in object_names
-        if name and not name.startswith(("http://", "https://"))
+        if (safe_name := _safe_object_name(name)) is not None
     }
     if not valid_names:
         return True
@@ -92,6 +118,10 @@ def delete_images_from_gcs(object_names: list[str]) -> bool:
             path = _local_storage_dir() / object_name
             path.unlink(missing_ok=True)
         return True
+
+    if not _bucket_name():
+        logger.error("GCS_BUCKET_NAME is required outside local development")
+        return False
 
     try:
         bucket = storage.Client().bucket(_bucket_name())

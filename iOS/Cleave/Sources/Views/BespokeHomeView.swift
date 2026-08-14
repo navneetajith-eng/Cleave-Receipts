@@ -6,20 +6,20 @@ struct BespokeHomeView: View {
     @EnvironmentObject var store: AppStore
 
     @State private var showingNewGroupSheet = false
-    @State private var isPulsing = false
 
     @State private var showingRenameAlert = false
     @State private var groupToRename: UUID? = nil
     @State private var renameText = ""
 
-    @State private var showingDeleteAlert = false
-    @State private var groupToDelete: UUID? = nil
+    @State private var showingLeaveAlert = false
+    @State private var groupToLeave: UUID? = nil
 
     // Auth State
     @ObservedObject private var supabaseManager = SupabaseManager.shared
     @State private var showingSettingsSheet = false
     @State private var showingProfileSheet = false
     @State private var showingInboxSheet = false
+    @State private var showingDemoControls = false
     @State private var inboxItems: [InboxItem] = []
 
     // Some vibrant colors to cycle through for groups
@@ -28,13 +28,26 @@ struct BespokeHomeView: View {
     var body: some View {
         ZStack {
             FluidBackground()
+                .ignoresSafeArea()
 
             VStack(alignment: .leading, spacing: 10) {
 
                 headerView
 
+                if DemoMode.isEnabled {
+                    Label("DEMO DATA · LOCAL ONLY", systemImage: "flask.fill")
+                        .font(.custom("AvenirNext-Heavy", size: 11))
+                        .tracking(1.2)
+                        .foregroundColor(DesignSystem.accentOrange)
+                        .padding(.horizontal, 12)
+                        .padding(.vertical, 7)
+                        .background(DesignSystem.accentOrange.opacity(0.12))
+                        .clipShape(Capsule())
+                        .padding(.horizontal, 20)
+                }
+
                 Text("Select a group to split receipts.")
-                    .font(.subheadline)
+                    .font(DesignSystem.bodyFont(14))
                     .foregroundColor(Color.black.opacity(0.5))
                     .padding(.horizontal, 20)
                     .padding(.bottom, 10)
@@ -72,16 +85,18 @@ struct BespokeHomeView: View {
                                     }
                                     .buttonStyle(PressScaleButtonStyle())
                                     .contextMenu {
-                                        Button {
-                                            groupToRename = group.id
-                                            renameText = group.name
-                                            showingRenameAlert = true
-                                        } label: { Label("Rename", systemImage: "pencil") }
+                                        if !group.isCollaborative || group.createdBy == supabaseManager.currentUser?.id {
+                                            Button {
+                                                groupToRename = group.id
+                                                renameText = group.name
+                                                showingRenameAlert = true
+                                            } label: { Label("Rename", systemImage: "pencil") }
+                                        }
 
                                         Button(role: .destructive) {
-                                            groupToDelete = group.id
-                                            showingDeleteAlert = true
-                                        } label: { Label("Delete", systemImage: "trash") }
+                                            groupToLeave = group.id
+                                            showingLeaveAlert = true
+                                        } label: { Label("Leave group", systemImage: "rectangle.portrait.and.arrow.right") }
                                     }
                                 }
                             }
@@ -107,104 +122,33 @@ struct BespokeHomeView: View {
                                     }
                                     .buttonStyle(PressScaleButtonStyle())
                                     .contextMenu {
-                                        Button {
-                                            groupToRename = group.id
-                                            renameText = group.name
-                                            showingRenameAlert = true
-                                        } label: { Label("Rename", systemImage: "pencil") }
+                                        if !group.isCollaborative || group.createdBy == supabaseManager.currentUser?.id {
+                                            Button {
+                                                groupToRename = group.id
+                                                renameText = group.name
+                                                showingRenameAlert = true
+                                            } label: { Label("Rename", systemImage: "pencil") }
+                                        }
 
                                         Button(role: .destructive) {
-                                            groupToDelete = group.id
-                                            showingDeleteAlert = true
-                                        } label: { Label("Delete", systemImage: "trash") }
+                                            groupToLeave = group.id
+                                            showingLeaveAlert = true
+                                        } label: { Label("Leave group", systemImage: "rectangle.portrait.and.arrow.right") }
                                     }
                                 }
                             }
                             .padding(.top, 40) // The primary stagger offset for the entire column
                         }
                         .padding(.horizontal, 20)
-                        .padding(.bottom, 120)
+                        .padding(.bottom, 150)
                     }
                 }
 
                 Spacer()
             }
-            .overlay(
-                VStack {
-                    Spacer()
-                    HStack {
-                        Button(action: {
-                            showingInboxSheet = true
-                        }) {
-                            Image(systemName: "tray.fill")
-                                .font(.system(size: 20, weight: .bold))
-                                .foregroundColor(.white)
-                                .frame(width: 54, height: 54)
-                                .background(
-                                    Circle()
-                                        .fill(Color.black.opacity(0.85))
-                                        .shadow(color: Color.black.opacity(0.2), radius: 10, x: 0, y: 5)
-                                )
-                                .overlay(alignment: .topTrailing) {
-                                    let unreadCount = inboxItems.filter { !$0.isRead }.count
-                                    if unreadCount > 0 {
-                                        Text(unreadCount > 99 ? "99+" : "\(unreadCount)")
-                                            .font(.system(size: 10, weight: .black, design: .rounded))
-                                            .foregroundColor(.white)
-                                            .padding(.horizontal, 6)
-                                            .frame(minWidth: 20, minHeight: 20)
-                                            .background(DesignSystem.accentOrange)
-                                            .clipShape(Capsule())
-                                            .offset(x: 5, y: -5)
-                                    }
-                                }
-                        }
-                        .buttonStyle(PressScaleButtonStyle())
-                        .accessibilityLabel("Inbox")
-
-                        Spacer()
-
-                        Button(action: {
-                            showingNewGroupSheet = true
-                        }) {
-                            Image(systemName: "plus")
-                                .font(.system(size: 24, weight: .bold))
-                                .foregroundColor(.white)
-                                .frame(width: 54, height: 54)
-                                .background(
-                                    Circle()
-                                        .fill(Color.black.opacity(0.85))
-                                        .shadow(color: Color.black.opacity(0.2), radius: 10, x: 0, y: 5)
-                                )
-                        }
-                        .buttonStyle(PressScaleButtonStyle())
-
-                        Spacer()
-
-                        Button(action: {
-                            showingSettingsSheet = true
-                        }) {
-                            Image(systemName: "gearshape.fill")
-                                .font(.system(size: 20, weight: .bold))
-                                .foregroundColor(.white)
-                                .frame(width: 54, height: 54)
-                                .background(
-                                    Circle()
-                                        .fill(Color.black.opacity(0.85))
-                                        .shadow(color: Color.black.opacity(0.2), radius: 10, x: 0, y: 5)
-                                )
-                        }
-                        .buttonStyle(PressScaleButtonStyle())
-                    }
-                    .padding(.horizontal, 20)
-                    .padding(.bottom, 30)
-                    .onAppear {
-                        withAnimation(.easeInOut(duration: 2.0).repeatForever(autoreverses: true)) {
-                            isPulsing = true
-                        }
-                    }
-                }
-            )
+            .overlay(alignment: .bottom) {
+                bottomToolbar
+            }
 
             // Old notification overlay removed
 
@@ -231,10 +175,12 @@ struct BespokeHomeView: View {
                 }
             }
         }
+        .ignoresSafeArea(.container, edges: .bottom)
         .sheet(isPresented: $showingNewGroupSheet) {
             NewGroupSheetView(isPresented: $showingNewGroupSheet)
                 .presentationDragIndicator(.hidden)
-                .presentationDetents([.fraction(0.45), .large])
+                .presentationDetents([.fraction(0.72), .large])
+                .presentationCornerRadius(34)
         }
         .sheet(isPresented: $showingSettingsSheet) {
             SettingsSheetView(isPresented: $showingSettingsSheet)
@@ -245,6 +191,12 @@ struct BespokeHomeView: View {
             ProfileSheetView(isPresented: $showingProfileSheet)
                 .presentationDragIndicator(.visible)
                 .presentationDetents([.large])
+        }
+        .sheet(isPresented: $showingDemoControls) {
+            DemoControlSheet(isPresented: $showingDemoControls)
+                .presentationDragIndicator(.visible)
+                .presentationDetents([.height(470)])
+                .presentationCornerRadius(34)
         }
         .sheet(isPresented: $showingInboxSheet, onDismiss: {
             Task { await refreshInbox() }
@@ -277,15 +229,15 @@ struct BespokeHomeView: View {
                 }
             }
         }
-        .alert("Delete Group", isPresented: $showingDeleteAlert, presenting: groupToDelete) { id in
-            Button("Delete", role: .destructive) {
+        .alert("Leave Group?", isPresented: $showingLeaveAlert, presenting: groupToLeave) { id in
+            Button("Leave", role: .destructive) {
                 if let group = store.getGroup(id: id), !group.isCollaborative {
                     withAnimation { store.deleteGroup(id: id) }
                     return
                 }
                 Task {
                     do {
-                        try await CleaveAPI.shared.deleteGroup(id: id)
+                        try await CleaveAPI.shared.leaveGroup(id: id)
                         await MainActor.run {
                             withAnimation { store.deleteGroup(id: id) }
                         }
@@ -296,17 +248,22 @@ struct BespokeHomeView: View {
             }
             Button("Cancel", role: .cancel) {}
         } message: { _ in
-            Text("Are you sure you want to delete this group? This action cannot be undone.")
+            Text("The group and its receipts stay available to everyone else. You will lose access unless another member adds you again.")
         }
         .task { await refreshInbox() }
     }
 
     private var headerView: some View {
         HStack {
-            VStack(alignment: .leading, spacing: 4) {
+            HStack(spacing: 10) {
+                Image("AppLogo")
+                    .resizable()
+                    .scaledToFit()
+                    .frame(width: 42, height: 42)
+                    .clipShape(RoundedRectangle(cornerRadius: 11, style: .continuous))
                 Text("CLEAVE")
-                    .font(.custom("AvenirNext-Heavy", size: 26))
-                    .tracking(6)
+                    .font(.custom("AvenirNext-Heavy", size: 24))
+                    .tracking(4.5)
                     .foregroundColor(Color.black.opacity(0.85))
             }
 
@@ -317,9 +274,21 @@ struct BespokeHomeView: View {
                 // Profile Icon
                 Button(action: {
                     HapticsManager.shared.playImpact(style: .light)
-                    showingProfileSheet = true
+                    if DemoMode.isEnabled {
+                        showingDemoControls = true
+                    } else {
+                        showingProfileSheet = true
+                    }
                 }) {
-                    if let user = supabaseManager.currentUser {
+                    if DemoMode.isEnabled {
+                        Image(systemName: "flask.fill")
+                            .foregroundColor(.white)
+                            .font(.system(size: 18, weight: .bold))
+                            .frame(width: 44, height: 44)
+                            .background(DesignSystem.accentOrange)
+                            .clipShape(Circle())
+                            .shadow(color: Color.black.opacity(0.2), radius: 10, y: 5)
+                    } else if let user = supabaseManager.currentUser {
                         ProfileAvatarView(
                             profileID: user.id,
                             fallbackName: user.email ?? "User",
@@ -335,15 +304,67 @@ struct BespokeHomeView: View {
                             .clipShape(Circle())
                     }
                 }
-                .accessibilityLabel("Profile and friends")
+                .accessibilityLabel(DemoMode.isEnabled ? "Open Demo Lab" : "Profile and friends")
             }
         }
         .padding(.horizontal, 20)
         .padding(.top, 60)
     }
 
+    private var bottomToolbar: some View {
+        HStack {
+            toolbarButton(systemName: "tray.fill", label: "Inbox", action: { showingInboxSheet = true })
+                .overlay(alignment: .topTrailing) {
+                    let unreadCount = inboxItems.filter { !$0.isRead }.count
+                    if unreadCount > 0 {
+                        Text(unreadCount > 99 ? "99+" : "\(unreadCount)")
+                            .font(DesignSystem.labelFont(8))
+                            .foregroundStyle(.white)
+                            .padding(.horizontal, 5)
+                            .frame(minWidth: 18, minHeight: 18)
+                            .background(DesignSystem.accentOrange, in: Capsule())
+                            .offset(x: 4, y: -3)
+                    }
+                }
+
+            Spacer()
+            toolbarButton(systemName: "plus", label: "New group", prominent: true, action: { showingNewGroupSheet = true })
+            Spacer()
+            toolbarButton(systemName: "gearshape.fill", label: "Settings", action: { showingSettingsSheet = true })
+        }
+        .padding(.horizontal, 22)
+        .padding(.vertical, 10)
+        .background(.ultraThinMaterial, in: Capsule())
+        .overlay(Capsule().stroke(.white.opacity(0.52), lineWidth: 0.7))
+        .shadow(color: DesignSystem.accentNavy.opacity(0.12), radius: 16, y: 6)
+        .padding(.horizontal, 18)
+        .padding(.bottom, 34)
+    }
+
+    private func toolbarButton(
+        systemName: String,
+        label: String,
+        prominent: Bool = false,
+        action: @escaping () -> Void
+    ) -> some View {
+        Button(action: action) {
+            Image(systemName: systemName)
+                .font(.system(size: prominent ? 22 : 18, weight: .bold))
+                .foregroundStyle(.white)
+                .frame(width: prominent ? 52 : 46, height: prominent ? 52 : 46)
+                .background(prominent ? DesignSystem.accentOrange : Color.black, in: Circle())
+                .shadow(color: DesignSystem.accentNavy.opacity(prominent ? 0.18 : 0.1), radius: 8, y: 3)
+        }
+        .buttonStyle(PressScaleButtonStyle())
+        .accessibilityLabel(label)
+    }
+
     @MainActor
     private func refreshInbox() async {
+        guard !DemoMode.isEnabled else {
+            inboxItems = []
+            return
+        }
         do {
             inboxItems = try await CleaveAPI.shared.fetchInbox()
         } catch {
@@ -355,6 +376,137 @@ struct BespokeHomeView: View {
 
     // Custom Speech Bubble Dropdown
     // notificationDropdown removed
+}
+
+private struct DemoControlSheet: View {
+    @Binding var isPresented: Bool
+    @EnvironmentObject private var store: AppStore
+    @AppStorage(DemoMode.defaultsKey) private var demoModeEnabled = false
+
+    @State private var showingResetConfirmation = false
+    @State private var showingExitConfirmation = false
+
+    private var receiptCount: Int {
+        store.groups.reduce(0) { count, group in
+            count + store.receipts(for: group.id).count
+        }
+    }
+
+    var body: some View {
+        ZStack {
+            DesignSystem.canvasBeige.ignoresSafeArea()
+
+            CleaveReceiptWatermark(color: DesignSystem.accentOrange)
+                .rotationEffect(.degrees(10))
+                .position(x: 380, y: 80)
+                .opacity(0.42)
+
+            VStack(alignment: .leading, spacing: 18) {
+                HStack(alignment: .top, spacing: 16) {
+                    ZStack {
+                        Circle()
+                            .fill(DesignSystem.accentOrange.opacity(0.14))
+                            .frame(width: 68, height: 68)
+                        Circle()
+                            .stroke(DesignSystem.accentOrange.opacity(0.22), lineWidth: 1)
+                            .frame(width: 78, height: 78)
+                        Image(systemName: "flask.fill")
+                            .font(.system(size: 27, weight: .bold))
+                            .foregroundStyle(DesignSystem.accentOrange)
+                    }
+
+                    VStack(alignment: .leading, spacing: 5) {
+                        Text("DEMO LAB")
+                            .font(DesignSystem.labelFont(10))
+                            .tracking(1.8)
+                            .foregroundStyle(DesignSystem.accentOrange)
+                        Text("Try everything")
+                            .font(DesignSystem.displayFont(27))
+                            .foregroundStyle(DesignSystem.ink)
+                        Text("Local data. No real payments.")
+                            .font(DesignSystem.bodyFont(14))
+                            .foregroundStyle(DesignSystem.inkMuted)
+                    }
+                    Spacer()
+                }
+
+                HStack(spacing: 10) {
+                    demoStat(value: "\(store.groups.count)", label: "GROUPS", color: DesignSystem.accentTeal)
+                    demoStat(value: "\(receiptCount)", label: "RECEIPTS", color: DesignSystem.accentOrange)
+                    demoStat(value: "FREE", label: "TO EXPLORE", color: DesignSystem.accentNavy)
+                }
+
+                Button {
+                    showingResetConfirmation = true
+                } label: {
+                    Label("Reset demo data", systemImage: "arrow.counterclockwise")
+                        .font(DesignSystem.titleFont(15))
+                        .foregroundStyle(DesignSystem.ink)
+                        .frame(maxWidth: .infinity)
+                        .frame(height: 52)
+                        .background(DesignSystem.surface)
+                        .clipShape(RoundedRectangle(cornerRadius: 16, style: .continuous))
+                        .overlay(RoundedRectangle(cornerRadius: 16).stroke(DesignSystem.hairline, lineWidth: 1))
+                }
+                .buttonStyle(PressScaleButtonStyle())
+
+                Button {
+                    showingExitConfirmation = true
+                } label: {
+                    Text("Exit demo")
+                        .font(DesignSystem.titleFont(15))
+                        .foregroundStyle(.white)
+                        .frame(maxWidth: .infinity)
+                        .frame(height: 52)
+                        .background(DesignSystem.accentNavy)
+                        .clipShape(RoundedRectangle(cornerRadius: 16, style: .continuous))
+                }
+                .buttonStyle(PressScaleButtonStyle())
+            }
+            .padding(.horizontal, 24)
+            .padding(.top, 24)
+            .padding(.bottom, 20)
+        }
+        .preferredColorScheme(.light)
+        .alert("Reset the demo?", isPresented: $showingResetConfirmation) {
+            Button("Cancel", role: .cancel) { }
+            Button("Reset") {
+                withAnimation(.spring(response: 0.45, dampingFraction: 0.82)) {
+                    store.loadDemoData()
+                }
+                HapticsManager.shared.playNotification(type: .success)
+                isPresented = false
+            }
+        } message: {
+            Text("This replaces your demo changes with Cleave's original sample groups and receipts.")
+        }
+        .alert("Exit demo mode?", isPresented: $showingExitConfirmation) {
+            Button("Keep exploring", role: .cancel) { }
+            Button("Exit Demo", role: .destructive) {
+                store.clearForSignOut()
+                demoModeEnabled = false
+                isPresented = false
+            }
+        } message: {
+            Text("You’ll return to sign in. Demo data never affects a real account.")
+        }
+    }
+
+    private func demoStat(value: String, label: String, color: Color) -> some View {
+        VStack(alignment: .leading, spacing: 4) {
+            Text(value)
+                .font(DesignSystem.displayFont(value.count > 4 ? 15 : 22))
+                .foregroundStyle(DesignSystem.ink)
+            Text(label)
+                .font(DesignSystem.labelFont(8))
+                .tracking(0.8)
+                .foregroundStyle(DesignSystem.inkMuted)
+        }
+        .padding(12)
+        .frame(maxWidth: .infinity, minHeight: 70, alignment: .leading)
+        .background(color.opacity(0.1))
+        .clipShape(RoundedRectangle(cornerRadius: 16, style: .continuous))
+    }
 }
 
 struct ReceiptCardShape: Shape {
@@ -414,12 +566,12 @@ struct GroupCard: View {
             HStack(alignment: .top) {
                 VStack(alignment: .leading, spacing: 6) {
                     Text("RECEIPTS")
-                        .font(.system(size: 12, weight: .bold, design: .monospaced))
+                        .font(DesignSystem.labelFont(10))
                         .foregroundColor(textColor.opacity(0.6))
                         .kerning(1.5)
 
                     Text(title)
-                        .font(.system(size: 22, weight: .bold, design: .rounded))
+                        .font(DesignSystem.titleFont(21))
                         .foregroundColor(textColor)
                         .lineLimit(2)
                         .minimumScaleFactor(0.5)
@@ -432,7 +584,7 @@ struct GroupCard: View {
                         .foregroundColor(textColor.opacity(0.5))
                 }
                 Text("\(members)")
-                    .font(.system(size: 14, weight: .bold, design: .monospaced))
+                    .font(DesignSystem.labelFont(13))
                     .foregroundColor(textColor.opacity(0.7))
             }
 
@@ -442,13 +594,13 @@ struct GroupCard: View {
 
             HStack {
                 Text("TOTAL ITEMS")
-                    .font(.system(size: 12, weight: .bold, design: .monospaced))
+                    .font(DesignSystem.labelFont(10))
                     .foregroundColor(textColor.opacity(0.6))
 
                 Spacer()
 
                 Text("--")
-                    .font(.system(size: 14, weight: .bold, design: .monospaced))
+                    .font(DesignSystem.labelFont(13))
                     .foregroundColor(textColor)
             }
 

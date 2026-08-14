@@ -68,3 +68,12 @@ iOS/*.py
 iOS/*.rb
 iOS/*_extracted.png
 iOS/*_transparent.png
+
+# Website dependencies and generated output
+node_modules/
+.next/
+.vinext/
+.wrangler/
+dist/
+coverage/
+Website/github-pages/

@@ -2,7 +2,7 @@ from __future__ import annotations
 
 from decimal import Decimal, ROUND_HALF_UP
 
-from sqlalchemy.orm import Session
+from sqlalchemy.orm import Session, selectinload
 
 from app.models import domain, schemas
 
@@ -40,12 +40,22 @@ def _allocate_cents(total_cents: int, weights: dict[str, int]) -> dict[str, int]
 
 
 def calculate_balances(db: Session, receipt_id: str) -> list[schemas.Balance]:
-    receipt = db.query(domain.Receipt).filter(domain.Receipt.id == receipt_id).first()
-    if receipt is None:
+    receipt_amounts = (
+        db.query(
+            domain.Receipt.tax_amount,
+            domain.Receipt.tip_amount,
+            domain.Receipt.discount_amount,
+        )
+        .filter(domain.Receipt.id == receipt_id)
+        .first()
+    )
+    if receipt_amounts is None:
         return []
+    tax_amount, tip_amount, discount_amount = receipt_amounts
 
     line_items = (
         db.query(domain.ReceiptItem)
+        .options(selectinload(domain.ReceiptItem.assignments))
         .filter(domain.ReceiptItem.receipt_id == receipt_id)
         .all()
     )
@@ -53,32 +63,34 @@ def calculate_balances(db: Session, receipt_id: str) -> list[schemas.Balance]:
         return []
 
     user_item_cents: dict[str, int] = {}
+    user_items: dict[str, list[schemas.BalanceItem]] = {}
     for item in line_items:
         user_ids = sorted(
             assignment.user_id
-            for assignment in db.query(domain.ReceiptAssignment)
-            .filter(domain.ReceiptAssignment.item_id == item.id)
-            .all()
+            for assignment in item.assignments
         )
         if not user_ids:
             continue
         item_cents = _cents(item.price)
         base, remainder = divmod(item_cents, len(user_ids))
         for index, user_id in enumerate(user_ids):
-            user_item_cents[user_id] = (
-                user_item_cents.get(user_id, 0) + base + (1 if index < remainder else 0)
+            share = base + (1 if index < remainder else 0)
+            user_item_cents[user_id] = user_item_cents.get(user_id, 0) + share
+            user_items.setdefault(user_id, []).append(
+                schemas.BalanceItem(item_id=item.id, name=item.name, amount=_money(share))
             )
 
     if not user_item_cents:
         return []
 
-    tax = _allocate_cents(_cents(receipt.tax_amount), user_item_cents)
-    tip = _allocate_cents(_cents(receipt.tip_amount), user_item_cents)
-    discount = _allocate_cents(_cents(receipt.discount_amount), user_item_cents)
+    tax = _allocate_cents(_cents(tax_amount), user_item_cents)
+    tip = _allocate_cents(_cents(tip_amount), user_item_cents)
+    discount = _allocate_cents(_cents(discount_amount), user_item_cents)
 
     return [
         schemas.Balance(
             user_id=user_id,
+            items=user_items.get(user_id, []),
             items_total=_money(items_total),
             tax_share=_money(tax[user_id]),
             tip_share=_money(tip[user_id]),

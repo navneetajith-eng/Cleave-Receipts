@@ -5,14 +5,24 @@ import UIKit
 
 struct Profile: Codable, Identifiable, Equatable, Hashable {
     let id: UUID
-    let email: String
+    let email: String?
     let username: String?
+    let displayName: String?
     let avatarUrl: String?
     let createdAt: String?
+    let regionCode: String?
+    let venmoUsername: String?
+    let upiId: String?
+    let aaniId: String?
+    let ageBand: String?
+    let avatarVisibility: String?
+    let paymentVisibility: String?
 
-    var displayName: String {
-        let trimmed = username?.trimmingCharacters(in: .whitespacesAndNewlines) ?? ""
-        return trimmed.isEmpty ? email : trimmed
+    var preferredName: String {
+        let name = displayName?.trimmingCharacters(in: .whitespacesAndNewlines) ?? ""
+        if !name.isEmpty { return name }
+        let handle = username?.trimmingCharacters(in: .whitespacesAndNewlines) ?? ""
+        return handle.isEmpty ? (email ?? "Member") : handle
     }
 }
 
@@ -31,8 +41,15 @@ struct InboxItem: Codable, Identifiable, Equatable {
 struct GroupMemberModel: Codable, Identifiable, Equatable, Hashable {
     let id: UUID
     var username: String
+    var displayName: String? = nil
+    var regionCode: String? = nil
+    var venmoUsername: String? = nil
+    var upiId: String? = nil
+    var aaniId: String? = nil
 
-    var displayName: String {
+    var preferredName: String {
+        let name = displayName?.trimmingCharacters(in: .whitespacesAndNewlines) ?? ""
+        if !name.isEmpty { return name }
         let trimmed = username.trimmingCharacters(in: .whitespacesAndNewlines)
         return trimmed.isEmpty ? "Member" : trimmed
     }
@@ -43,6 +60,7 @@ struct RemoteReceipt: Codable, Identifiable, Equatable {
     let groupId: UUID
     var title: String
     let adminId: UUID
+    var currencyCode: Currency? = nil
     var taxAmount: Double
     var tipAmount: Double
     var discountAmount: Double
@@ -50,10 +68,39 @@ struct RemoteReceipt: Codable, Identifiable, Equatable {
     let createdAt: String?
     var items: [ReceiptItem]
     var memories: [RemoteMemory]? = nil
+    var participants: [RemoteReceiptParticipant]? = nil
+    var experiences: [RemoteReceiptExperience]? = nil
 
     var total: Double {
         items.reduce(0) { $0 + $1.price } + taxAmount + tipAmount - discountAmount
     }
+
+    var currency: Currency {
+        currencyCode ?? RegionManager.shared.currentRegion.currency
+    }
+
+    var assignmentMap: [String: Set<String>] {
+        Dictionary(uniqueKeysWithValues: items.map {
+            ($0.id, Set(($0.assignedUserIds ?? []).map(\.uuidString)))
+        })
+    }
+}
+
+struct RemoteReceiptParticipant: Codable, Equatable, Hashable {
+    let receiptId: UUID
+    let userId: UUID
+    let status: String
+    let submittedAt: String?
+
+    var hasSubmitted: Bool { status == "submitted" }
+}
+
+struct RemoteReceiptExperience: Codable, Equatable, Hashable {
+    let receiptId: UUID
+    let userId: UUID
+    let rating: Int
+    let createdAt: String?
+    let updatedAt: String?
 }
 
 struct RemoteMemory: Codable, Identifiable, Equatable, Hashable {
@@ -67,15 +114,78 @@ struct ReceiptItem: Codable, Identifiable, Equatable, Hashable {
     let id: String
     let name: String
     let price: Double
+    var assignedUserIds: [UUID]? = nil
 }
 
 struct RemoteBalance: Codable, Equatable {
     let userId: UUID
+    let items: [RemoteBalanceItem]
     let itemsTotal: Double
     let taxShare: Double
     let tipShare: Double
     let discountShare: Double
     let totalOwed: Double
+}
+
+struct RemoteBalanceItem: Codable, Equatable, Hashable, Identifiable {
+    let itemId: String
+    let name: String
+    let amount: Double
+
+    var id: String { itemId }
+}
+
+struct RemoteSettlement: Codable, Identifiable, Equatable {
+    let id: UUID
+    let receiptId: UUID
+    let fromUserId: UUID
+    let toUserId: UUID
+    let amount: Double
+    let status: String
+    let settledAt: String?
+    let confirmedAt: String?
+    let reviewedBy: UUID?
+}
+
+struct ReceiptReview: Codable, Equatable {
+    let receipt: RemoteReceipt
+    let balances: [RemoteBalance]
+    let payments: [RemoteSettlement]
+    let viewerIsAdmin: Bool
+}
+
+enum ProfileVisibility: String, CaseIterable, Identifiable {
+    case everyone
+    case sharedGroups = "shared_groups"
+    case `private`
+
+    var id: String { rawValue }
+
+    var displayName: String {
+        switch self {
+        case .everyone: return "Everyone on Cleave"
+        case .sharedGroups: return "Shared groups only"
+        case .private: return "Only me"
+        }
+    }
+}
+
+enum AgeBand: String, CaseIterable, Identifiable {
+    case under13 = "under_13"
+    case age13To15 = "13_15"
+    case age16To17 = "16_17"
+    case adult = "18_plus"
+
+    var id: String { rawValue }
+
+    var displayName: String {
+        switch self {
+        case .under13: return "Under 13"
+        case .age13To15: return "13–15"
+        case .age16To17: return "16–17"
+        case .adult: return "18 or older"
+        }
+    }
 }
 
 struct ParsedReceiptResponse: Codable, Equatable {
@@ -85,6 +195,7 @@ struct ParsedReceiptResponse: Codable, Equatable {
     }
 
     let vendorName: String
+    let currencyCode: Currency? = nil
     let tax: Double
     let tip: Double
     let discount: Double
@@ -95,6 +206,24 @@ struct ParsedReceiptResponse: Codable, Equatable {
 private struct LocalReceiptCollection: Codable {
     let groupID: UUID
     var receipts: [RemoteReceipt]
+}
+
+enum DemoMode {
+    static let defaultsKey = "demoModeEnabled"
+    static let userID = UUID(uuidString: "D0000000-0000-0000-0000-000000000001")!
+
+    static var isEnabled: Bool {
+        #if DEBUG
+        return UserDefaults.standard.bool(forKey: defaultsKey)
+        #else
+        return false
+        #endif
+    }
+
+    @MainActor static var effectiveUserID: UUID? {
+        SupabaseManager.shared.currentUser?.id ?? (isEnabled ? userID : nil)
+    }
+
 }
 
 struct ReceiptDraft: Codable, Identifiable, Equatable {
@@ -138,6 +267,87 @@ final class AppStore: ObservableObject {
             // Cached and local groups remain fully usable while the network is unavailable.
             print("Group refresh deferred: \(error.localizedDescription)")
         }
+    }
+
+    func loadDemoData() {
+        #if DEBUG
+        let alexID = DemoMode.userID
+        let mayaID = UUID(uuidString: "D0000000-0000-0000-0000-000000000002")!
+        let samID = UUID(uuidString: "D0000000-0000-0000-0000-000000000003")!
+        let priyaID = UUID(uuidString: "D0000000-0000-0000-0000-000000000004")!
+        let fridayID = UUID(uuidString: "D1000000-0000-0000-0000-000000000001")!
+        let dubaiID = UUID(uuidString: "D1000000-0000-0000-0000-000000000002")!
+        let coffeeID = UUID(uuidString: "D1000000-0000-0000-0000-000000000003")!
+
+        let members = [
+            GroupMemberModel(id: alexID, username: "Alex", regionCode: "US", venmoUsername: "alex-cleaves"),
+            GroupMemberModel(id: mayaID, username: "Maya", regionCode: "US", venmoUsername: "maya-splits"),
+            GroupMemberModel(id: samID, username: "Sam", regionCode: "AE"),
+            GroupMemberModel(id: priyaID, username: "Priya", regionCode: "IN", upiId: "priya@upi")
+        ]
+
+        groups = [
+            GroupModel(id: fridayID, name: "Friday Dinner", members: members, isCollaborative: false, createdBy: alexID),
+            GroupModel(id: dubaiID, name: "Dubai Weekend", members: Array(members.prefix(3)), isCollaborative: false, createdBy: alexID),
+            GroupModel(id: coffeeID, name: "Coffee Run", members: Array(members.prefix(2)), isCollaborative: false, createdBy: alexID)
+        ]
+
+        localReceipts = [
+            fridayID: [RemoteReceipt(
+                id: UUID(uuidString: "D2000000-0000-0000-0000-000000000001")!,
+                groupId: fridayID,
+                title: "The Garden Table",
+                adminId: alexID,
+                currencyCode: .usd,
+                taxAmount: 8.40,
+                tipAmount: 16.00,
+                discountAmount: 5.00,
+                imageUrl: nil,
+                createdAt: "2026-08-08T19:30:00Z",
+                items: [
+                    ReceiptItem(id: "demo-burrata", name: "Burrata", price: 18.00),
+                    ReceiptItem(id: "demo-pasta", name: "Truffle Pasta", price: 32.00),
+                    ReceiptItem(id: "demo-pizza", name: "Margherita Pizza", price: 24.00),
+                    ReceiptItem(id: "demo-spritz", name: "Orange Spritz", price: 14.00)
+                ]
+            )],
+            dubaiID: [RemoteReceipt(
+                id: UUID(uuidString: "D2000000-0000-0000-0000-000000000002")!,
+                groupId: dubaiID,
+                title: "Jumeirah Breakfast",
+                adminId: alexID,
+                currencyCode: .aed,
+                taxAmount: 9.50,
+                tipAmount: 0,
+                discountAmount: 0,
+                imageUrl: nil,
+                createdAt: "2026-08-09T09:15:00Z",
+                items: [
+                    ReceiptItem(id: "demo-eggs", name: "Turkish Eggs", price: 48.00),
+                    ReceiptItem(id: "demo-coffee", name: "Flat White", price: 24.00),
+                    ReceiptItem(id: "demo-pastry", name: "Pistachio Croissant", price: 31.00)
+                ]
+            )],
+            coffeeID: [RemoteReceipt(
+                id: UUID(uuidString: "D2000000-0000-0000-0000-000000000003")!,
+                groupId: coffeeID,
+                title: "Morning Coffee",
+                adminId: alexID,
+                currencyCode: .usd,
+                taxAmount: 1.35,
+                tipAmount: 3.00,
+                discountAmount: 0,
+                imageUrl: nil,
+                createdAt: "2026-08-10T08:05:00Z",
+                items: [
+                    ReceiptItem(id: "demo-latte", name: "Oat Latte", price: 6.50),
+                    ReceiptItem(id: "demo-matcha", name: "Iced Matcha", price: 7.25)
+                ]
+            )]
+        ]
+        receiptDrafts = []
+        activeUserID = DemoMode.userID
+        #endif
     }
 
     @discardableResult

@@ -1,10 +1,210 @@
 import SwiftUI
 import PhotosUI
+import UIKit
 
 struct BreakdownItem: Identifiable {
     let id = UUID()
     let name: String
     let amount: Double
+}
+
+struct SettlementHandoffSheet: View {
+    let request: SettlementRequest
+    let region: AppRegion
+
+    @Environment(\.dismiss) private var dismiss
+    @State private var didCopyDetails = false
+
+    private var isCrossCurrency: Bool { request.currency != region.currency }
+
+    var body: some View {
+        NavigationStack {
+            VStack(alignment: .leading, spacing: 22) {
+                HStack(spacing: 14) {
+                    Text(region.flag)
+                        .font(.system(size: 42))
+
+                    VStack(alignment: .leading, spacing: 3) {
+                        Text(region.settlementMethod.displayName)
+                            .font(DesignSystem.displayFont(24))
+                        Text(region.currency.rawValue)
+                            .font(DesignSystem.labelFont(12))
+                            .foregroundColor(.secondary)
+                    }
+                }
+
+                VStack(alignment: .leading, spacing: 6) {
+                    Text("Pay \(request.recipientName)")
+                        .font(DesignSystem.titleFont(15))
+                        .foregroundColor(.secondary)
+                    Text(CurrencyManager.format(request.amount, currency: request.currency))
+                        .font(DesignSystem.displayFont(38))
+                }
+
+                Text(instructions)
+                    .font(DesignSystem.bodyFont(16))
+                    .foregroundColor(.black.opacity(0.68))
+                    .lineSpacing(4)
+
+                if didCopyDetails {
+                    Label("Payment details copied", systemImage: "checkmark.circle.fill")
+                        .font(DesignSystem.titleFont(14))
+                        .foregroundColor(.green)
+                }
+
+                Spacer()
+
+                Button(action: launchPaymentApp) {
+                    if isCrossCurrency {
+                        Label("Copy original amount", systemImage: "doc.on.doc.fill")
+                            .font(DesignSystem.titleFont(16))
+                            .foregroundStyle(.white)
+                            .frame(maxWidth: .infinity)
+                            .frame(height: 56)
+                            .background(DesignSystem.accentNavy, in: Capsule())
+                    } else {
+                        PaymentBrandButtonLabel(method: region.settlementMethod)
+                    }
+                }
+                .buttonStyle(PressScaleButtonStyle())
+                .accessibilityLabel(primaryButtonLabel)
+
+                Button(action: copyDetails) {
+                    Label("Copy payment details only", systemImage: "doc.on.doc")
+                        .font(DesignSystem.titleFont(15))
+                        .foregroundColor(DesignSystem.accentNavy)
+                        .frame(maxWidth: .infinity)
+                }
+
+                Text("Cleave does not process, store, or verify the payment. Always confirm the recipient and amount in the payment app.")
+                    .font(DesignSystem.bodyFont(12))
+                    .foregroundColor(.secondary)
+                    .multilineTextAlignment(.center)
+                    .frame(maxWidth: .infinity)
+            }
+            .padding(28)
+            .background(DesignSystem.canvasBeige.ignoresSafeArea())
+            .navigationTitle("Settle Up")
+            .navigationBarTitleDisplayMode(.inline)
+            .toolbar {
+                ToolbarItem(placement: .topBarTrailing) {
+                    Button("Done") { dismiss() }
+                }
+            }
+        }
+        .presentationDetents([.medium, .large])
+        .preferredColorScheme(.light)
+    }
+
+    private var instructions: String {
+        if isCrossCurrency {
+            return "This receipt is in \(request.currency.rawValue), while \(request.recipientName)'s payment method uses \(region.currency.rawValue). Cleave will not guess an exchange rate. Copy the original amount, agree on a conversion with the recipient, and verify the final amount in the payment app."
+        }
+        switch region.settlementMethod {
+        case .venmo:
+            if request.venmoUsername == nil {
+                return "\(request.recipientName) has not added a Venmo username yet. Cleave can still open Venmo, but you will need to choose the recipient."
+            }
+            return "Cleave opens Venmo with \(request.recipientName), the amount, and note pre-filled. Verify everything in Venmo before paying."
+        case .googlePayUPI:
+            if request.upiID == nil {
+                return "\(request.recipientName) has not added a UPI ID yet. Ask them to add it in Cleave Profile before paying."
+            }
+            return "Cleave opens Google Pay with \(request.recipientName)'s UPI ID, amount, and note pre-filled. Verify everything before paying."
+        case .aani:
+            if request.aaniID == nil {
+                return "\(request.recipientName) has not added an Aani ID. Cleave copies the amount and opens Aani; verify the recipient before paying."
+            }
+            return "Cleave copies \(request.recipientName)'s Aani ID and amount, then opens Aani. Verify everything before paying."
+        }
+    }
+
+    private var primaryButtonLabel: String {
+        if isCrossCurrency { return "Copy original receipt amount" }
+        switch region.settlementMethod {
+        case .venmo: return "Open Venmo"
+        case .googlePayUPI: return "Open Google Pay"
+        case .aani: return "Copy & Open Aani"
+        }
+    }
+
+    private func copyDetails() {
+        if isCrossCurrency {
+            UIPasteboard.general.string = "\(request.recipientName) — \(CurrencyManager.format(request.amount, currency: request.currency)) — \(request.note). Convert only after agreeing with the recipient."
+        } else {
+            UIPasteboard.general.string = PaymentDeepLinkBuilder.clipboardSummary(
+                region: region,
+                amount: request.amount,
+                memberName: request.recipientName,
+                note: request.note,
+                paymentAddress: request.paymentAddress(for: region)
+            )
+        }
+        didCopyDetails = true
+        HapticsManager.shared.playImpact(style: .light)
+    }
+
+    private func launchPaymentApp() {
+        if isCrossCurrency {
+            copyDetails()
+            return
+        }
+        switch region.settlementMethod {
+        case .venmo:
+            guard let url = PaymentDeepLinkBuilder.buildVenmoURL(
+                recipient: request.venmoUsername,
+                amount: request.amount,
+                note: request.note
+            ) else { return }
+            open(url, fallback: PaymentDeepLinkBuilder.venmoAppStoreURL)
+
+        case .googlePayUPI:
+            copyDetails()
+            guard let upiID = request.upiID,
+                  let url = PaymentDeepLinkBuilder.buildGooglePayURL(
+                    upiID: upiID,
+                    recipientName: request.recipientName,
+                    amount: request.amount,
+                    note: request.note
+                  ) else {
+                UIApplication.shared.open(PaymentDeepLinkBuilder.googlePayAppStoreURL)
+                return
+            }
+            open(url, fallback: PaymentDeepLinkBuilder.googlePayAppStoreURL)
+
+        case .aani:
+            copyDetails()
+            UIApplication.shared.open(PaymentDeepLinkBuilder.aaniAppStoreURL)
+        }
+    }
+
+    private func open(_ primaryURL: URL, fallback fallbackURL: URL) {
+        UIApplication.shared.open(primaryURL, options: [:]) { success in
+            guard !success else { return }
+            DispatchQueue.main.async {
+                UIApplication.shared.open(fallbackURL)
+            }
+        }
+    }
+}
+
+struct SettlementRequest: Identifiable {
+    let id = UUID()
+    let recipientName: String
+    let venmoUsername: String?
+    let upiID: String?
+    let aaniID: String?
+    let amount: Double
+    let currency: Currency
+    let note: String
+
+    func paymentAddress(for region: AppRegion) -> String? {
+        switch region {
+        case .unitedStates: return venmoUsername.map { "@\($0)" }
+        case .india: return upiID
+        case .unitedArabEmirates: return aaniID
+        }
+    }
 }
 
 struct BespokeBalancesView: View {
@@ -17,11 +217,18 @@ struct BespokeBalancesView: View {
     let tax: Double
     let tip: Double
     let discount: Double
+    let currency: Currency
+    let viewerIsAdmin: Bool
+    let initialReview: ReceiptReview?
     @Binding var appState: AppState
     var namespace: Namespace.ID
 
     @EnvironmentObject var store: AppStore
+    @AppStorage("selectedRegion") private var selectedRegion: String = ""
     @State private var memberBalances: [(String, Double, [BreakdownItem])] = []
+    @State private var pendingSettlement: SettlementRequest?
+    @State private var settlementRecipient: GroupMemberModel?
+    @State private var pendingMemberIDs: [UUID] = []
 
     // Memories
     @State private var rating: Int = 0
@@ -34,34 +241,24 @@ struct BespokeBalancesView: View {
             DesignSystem.canvasBeige.ignoresSafeArea()
 
             VStack(alignment: .leading, spacing: 0) {
-                // Header
                 HStack {
-                    Button(action: {
+                    CleaveIconButton(systemName: "chevron.left", accessibilityText: "Back to receipt") {
                         withAnimation(.spring(response: 0.6, dampingFraction: 0.8)) {
-                            appState = .assignment(receiptId: receiptId, group: groupId, title: title, items: items, assignments: assignments, tax: tax, tip: tip, discount: discount)
+                            appState = .assignment(receiptId: receiptId, group: groupId, title: title, items: items, assignments: assignments, tax: tax, tip: tip, discount: discount, currency: currency, viewerIsAdmin: viewerIsAdmin, adminOverrideMode: false)
                         }
-                    }) {
-                        Image(systemName: "chevron.left.circle.fill")
-                            .font(.system(size: 32))
-                            .foregroundColor(.black.opacity(0.7))
                     }
                     Spacer()
-                    Button(action: {
+                    CleaveIconButton(systemName: "square.and.arrow.up", accessibilityText: "Share balances") {
                         shareSummary()
-                    }) {
-                        Image(systemName: "square.and.arrow.up.circle.fill")
-                            .font(.system(size: 32))
-                            .foregroundColor(.black.opacity(0.7))
                     }
                 }
-                .padding(.horizontal, 30)
-                .padding(.top, 60)
+                .padding(.horizontal, 22)
+                .padding(.top, 58)
 
-                Text("Balances")
-                    .font(.system(size: 48, weight: .light, design: .serif))
-                    .foregroundColor(.black)
-                    .padding(.horizontal, 30)
-                    .padding(.top, 10)
+                CleaveSectionHeading("Receipt summary", eyebrow: "Your picks are saved", detail: pendingMemberIDs.isEmpty ? "Everyone has finished choosing." : "Totals update live as the group finishes choosing.")
+                    .padding(.horizontal, 22)
+                    .padding(.top, 18)
+                    .padding(.bottom, 16)
 
                 ScrollView(showsIndicators: false) {
                     VStack(spacing: 20) {
@@ -70,8 +267,12 @@ struct BespokeBalancesView: View {
                         VStack(spacing: 0) {
                             masterSummaryCard()
 
+                            if !pendingMemberIDs.isEmpty {
+                                pendingMembersCard
+                            }
+
                             Text("Individual Breakdown")
-                                .font(.system(.title3, design: .serif))
+                                .font(DesignSystem.titleFont(17))
                                 .foregroundColor(.white)
                                 .frame(maxWidth: .infinity, alignment: .leading)
                                 .padding(.horizontal, 30)
@@ -90,25 +291,31 @@ struct BespokeBalancesView: View {
 
                         // Memories Section
                         VStack(spacing: 20) {
-                            Text("Rate your experience at '\(title)'!")
-                                .font(.system(.title3, design: .serif))
-                                .foregroundColor(.white)
+                            VStack(spacing: 5) {
+                                Text("SAVE THE MEMORY")
+                                    .font(DesignSystem.labelFont(10))
+                                    .tracking(1.5)
+                                    .foregroundStyle(DesignSystem.accentOrange)
+                                Text("How was \(title)?")
+                                    .font(DesignSystem.titleFont(19))
+                                    .foregroundColor(DesignSystem.ink)
+                            }
 
                             // Star Rating
                             HStack(spacing: 15) {
                                 ForEach(1...5, id: \.self) { star in
                                     Image(systemName: star <= rating ? "star.fill" : "star")
                                         .font(.system(size: 30))
-                                        .foregroundColor(star <= rating ? .white : .white.opacity(0.3))
+                                        .foregroundColor(star <= rating ? DesignSystem.accentOrange : DesignSystem.ink.opacity(0.16))
                                         .onTapGesture {
                                             withAnimation { rating = star }
                                         }
                                 }
                             }
 
-                            Text("Upload your memories at '\(title)'")
-                                .font(.subheadline)
-                                .foregroundColor(.white.opacity(0.8))
+                            Text("Add a photo from the moment")
+                                .font(DesignSystem.bodyFont(13))
+                                .foregroundColor(DesignSystem.inkMuted)
                                 .padding(.top, 10)
 
                             // Photos
@@ -119,11 +326,11 @@ struct BespokeBalancesView: View {
                                             Image(systemName: "camera.fill")
                                                 .font(.system(size: 24))
                                             Text("Add Photos")
-                                                .font(.caption)
+                                                .font(DesignSystem.titleFont(12))
                                         }
-                                        .foregroundColor(.white.opacity(0.8))
+                                        .foregroundColor(DesignSystem.ink)
                                         .frame(width: 100, height: 100)
-                                        .background(Color.white.opacity(0.15))
+                                        .background(DesignSystem.fieldSurface)
                                         .clipShape(RoundedRectangle(cornerRadius: 16))
                                     }
                                     .onChange(of: selectedPhotoItems) { _, items in
@@ -151,18 +358,17 @@ struct BespokeBalancesView: View {
                             }
                         }
                         .padding(.vertical, 24)
-                        .background(Color.black.opacity(0.2))
+                        .background(DesignSystem.surface)
                         .clipShape(RoundedRectangle(cornerRadius: 24, style: .continuous))
+                        .overlay(RoundedRectangle(cornerRadius: 24).stroke(DesignSystem.hairline, lineWidth: 1))
                         .padding(.horizontal, 20)
                         .padding(.top, 10)
-                        .padding(.bottom, 150) // Space for button
+                        .padding(.bottom, 24)
                     }
                 }
             }
 
-            // Floating Action Button
-            VStack {
-                Spacer()
+            .safeAreaInset(edge: .bottom) {
                 Button(action: {
                     Task {
                         await saveReceiptAndUploadPhotos()
@@ -171,22 +377,39 @@ struct BespokeBalancesView: View {
                     if isSaving {
                         ProgressView().tint(.white)
                     } else {
-                        Text("Save Receipt")
+                        HStack {
+                            Text("Save receipt")
+                            Image(systemName: "checkmark")
+                                .font(.system(size: 14, weight: .black))
+                        }
                     }
                 }
                 .primaryButton()
+                .buttonStyle(PressScaleButtonStyle())
                 .disabled(isSaving)
-                .padding(.horizontal, 40)
-                .padding(.bottom, 40)
+                .padding(.horizontal, 22)
+                .padding(.vertical, 12)
+                .background(.ultraThinMaterial)
             }
         }
         .task {
             calculateBalances()
             if store.getGroup(id: groupId)?.isCollaborative == true {
-                async let balances: Void = loadAuthoritativeBalances()
-                async let experience: Void = loadSavedExperience()
-                _ = await (balances, experience)
+                if let initialReview {
+                    applyAuthoritativeReview(initialReview)
+                    settlementRecipient = store.getGroup(id: groupId)?.members
+                        .first(where: { $0.id == initialReview.receipt.adminId })
+                    await loadSavedExperience()
+                } else {
+                    async let balances: Void = loadAuthoritativeBalances()
+                    async let experience: Void = loadSavedExperience()
+                    async let recipient: Void = loadSettlementRecipient()
+                    _ = await (balances, experience, recipient)
+                }
             }
+        }
+        .sheet(item: $pendingSettlement) { request in
+            SettlementHandoffSheet(request: request, region: settlementRegion)
         }
     }
 
@@ -203,27 +426,41 @@ struct BespokeBalancesView: View {
         }
 
         do {
-            if rating > 0 {
-                try await CleaveAPI.shared.saveExperience(
-                    receiptID: receiptId,
-                    rating: rating
-                )
-            }
-
-            for data in selectedPhotos {
+            let compressedPhotos = try selectedPhotos.map { data -> Data in
                 guard let image = UIImage(data: data),
                       let compressedData = image.jpegData(compressionQuality: 0.6) else {
                     throw CleaveAPI.APIError.invalidResponse
                 }
-                _ = try await CleaveAPI.shared.uploadMemoryPhoto(
-                    data: compressedData,
-                    receiptID: receiptId
-                )
+                return compressedData
+            }
+
+            try await withThrowingTaskGroup(of: Void.self) { group in
+                if rating > 0 {
+                    group.addTask {
+                        try await CleaveAPI.shared.saveExperience(
+                            receiptID: receiptId,
+                            rating: rating
+                        )
+                    }
+                }
+                for data in compressedPhotos {
+                    group.addTask {
+                        _ = try await CleaveAPI.shared.uploadMemoryPhoto(
+                            data: data,
+                            receiptID: receiptId
+                        )
+                    }
+                }
+                try await group.waitForAll()
             }
 
             withAnimation(.spring(response: 0.6, dampingFraction: 0.8)) {
                 appState = .groupDetail(group: groupId)
             }
+        } catch is CancellationError {
+            return
+        } catch let error as URLError where error.code == .cancelled {
+            return
         } catch {
             ErrorManager.shared.showError(error.localizedDescription)
         }
@@ -245,18 +482,22 @@ struct BespokeBalancesView: View {
         return VStack(spacing: 12) {
             HStack {
                 Text("Receipt Subtotal")
+                    .font(DesignSystem.bodyFont(14))
                     .foregroundColor(.white.opacity(0.8))
                 Spacer()
-                Text(CurrencyManager.shared.format(subtotal))
+                Text(CurrencyManager.shared.format(subtotal, currency: currency))
+                    .font(DesignSystem.bodyFont(14))
                     .foregroundColor(.white.opacity(0.8))
             }
 
             if tax > 0 {
                 HStack {
                     Text("Tax")
+                        .font(DesignSystem.bodyFont(14))
                         .foregroundColor(.white.opacity(0.8))
                     Spacer()
-                    Text(CurrencyManager.shared.format(tax))
+                    Text(CurrencyManager.shared.format(tax, currency: currency))
+                        .font(DesignSystem.bodyFont(14))
                         .foregroundColor(.white.opacity(0.8))
                 }
             }
@@ -264,9 +505,11 @@ struct BespokeBalancesView: View {
             if tip > 0 {
                 HStack {
                     Text("Tip")
+                        .font(DesignSystem.bodyFont(14))
                         .foregroundColor(.white.opacity(0.8))
                     Spacer()
-                    Text(CurrencyManager.shared.format(tip))
+                    Text(CurrencyManager.shared.format(tip, currency: currency))
+                        .font(DesignSystem.bodyFont(14))
                         .foregroundColor(.white.opacity(0.8))
                 }
             }
@@ -274,14 +517,12 @@ struct BespokeBalancesView: View {
             Divider().background(Color.white.opacity(0.3)).padding(.vertical, 4)
 
             HStack {
-                Text("Total Allocated")
-                    .font(.system(.title3, design: .serif))
-                    .fontWeight(.bold)
+                Text("Receipt Total")
+                    .font(DesignSystem.titleFont(18))
                     .foregroundColor(.white)
                 Spacer()
-                Text(CurrencyManager.shared.format(fullReceiptTotal))
-                    .font(.system(.title3, design: .rounded))
-                    .fontWeight(.bold)
+                Text(CurrencyManager.shared.format(fullReceiptTotal, currency: currency))
+                    .font(DesignSystem.displayFont(19))
                     .foregroundColor(.white)
             }
         }
@@ -298,7 +539,7 @@ struct BespokeBalancesView: View {
 
     private func balanceCard(member: String, total: Double, breakdown: [BreakdownItem]) -> some View {
         let displayName = store.getGroup(id: groupId)?.members
-            .first(where: { $0.id.uuidString == member })?.displayName ?? "Member"
+            .first(where: { $0.id.uuidString == member })?.preferredName ?? "Member"
         return VStack(spacing: 0) {
             HStack {
                 Circle()
@@ -306,61 +547,61 @@ struct BespokeBalancesView: View {
                     .frame(width: 50, height: 50)
                     .overlay(
                         Text(String(displayName.prefix(1)))
-                            .font(.system(size: 20, design: .serif))
+                            .font(DesignSystem.titleFont(18))
                             .foregroundColor(.white)
                     )
 
                 Text(displayName)
-                    .font(.system(.title3, design: .serif))
+                    .font(DesignSystem.titleFont(18))
                     .foregroundColor(.white)
                     .padding(.leading, 10)
 
                 Spacer()
 
-                Text(CurrencyManager.shared.format(total))
-                    .font(.system(size: 24, weight: .medium, design: .rounded))
+                Text(CurrencyManager.shared.format(total, currency: currency))
+                    .font(DesignSystem.displayFont(22))
                     .foregroundColor(.white)
             }
             .padding(24)
 
             // Settlement button
-            if total > 0 {
+            if total > 0 && member == DemoMode.effectiveUserID?.uuidString && !viewerIsAdmin {
                 let isGroupCollaborative = store.getGroup(id: groupId)?.isCollaborative ?? false
                 let unassignedExists = items.contains { (assignments[$0.id] ?? []).isEmpty }
                 let isLocked = isGroupCollaborative && unassignedExists
 
                 Button(action: {
                     if isLocked { return }
-                    let note = "Cleave - \(title)".addingPercentEncoding(withAllowedCharacters: .urlQueryAllowed) ?? ""
-                    let amountStr = String(format: "%.2f", total)
-                    if let url = URL(string: "venmo://paycharge?txn=pay&amount=\(amountStr)&note=\(note)") {
-                        if UIApplication.shared.canOpenURL(url) {
-                            UIApplication.shared.open(url)
-                        } else {
-                            // Fallback to web
-                            if let webUrl = URL(string: "https://venmo.com/?txn=pay&amount=\(amountStr)&note=\(note)") {
-                                UIApplication.shared.open(webUrl)
-                            }
-                        }
-                    }
+                    pendingSettlement = SettlementRequest(
+                        recipientName: settlementRecipient?.preferredName ?? "the receipt payer",
+                        venmoUsername: settlementRecipient?.venmoUsername,
+                        upiID: settlementRecipient?.upiId,
+                        aaniID: settlementRecipient?.aaniId,
+                        amount: total,
+                        currency: currency,
+                        note: "Cleave - \(title)"
+                    )
                 }) {
-                    HStack {
+                    Group {
                         if isLocked {
+                            HStack {
                             Image(systemName: "lock.fill")
                             Text("Waiting for everyone...")
+                            }
+                            .font(DesignSystem.titleFont(13))
+                            .foregroundColor(.white.opacity(0.6))
+                            .frame(maxWidth: .infinity)
+                            .frame(height: 48)
+                            .background(Color.gray.opacity(0.5))
+                            .clipShape(RoundedRectangle(cornerRadius: 13, style: .continuous))
                         } else {
-                            Image(systemName: "v.square.fill")
-                            Text("Settle via Venmo")
+                            PaymentBrandButtonLabel(method: settlementRegion.settlementMethod, compact: true)
                         }
                     }
-                    .font(.system(.subheadline, design: .rounded, weight: .bold))
-                    .foregroundColor(isLocked ? .white.opacity(0.6) : .white)
-                    .frame(maxWidth: .infinity)
-                    .padding(.vertical, 12)
-                    .background(isLocked ? Color.gray.opacity(0.5) : Color.blue.opacity(0.8))
-                    .clipShape(RoundedRectangle(cornerRadius: 12))
                 }
                 .disabled(isLocked)
+                .buttonStyle(PressScaleButtonStyle())
+                .accessibilityLabel(isLocked ? "Waiting for everyone" : activeRegion.settlementMethod.actionLabel)
                 .padding(.horizontal, 24)
                 .padding(.bottom, 16)
             }
@@ -372,11 +613,11 @@ struct BespokeBalancesView: View {
                     ForEach(breakdown, id: \.id) { item in
                         HStack {
                             Text(item.name)
-                                .font(.system(.subheadline, design: .serif))
+                                .font(DesignSystem.bodyFont(13))
                                 .foregroundColor(.white.opacity(0.8))
                             Spacer()
-                            Text(CurrencyManager.shared.format(item.amount))
-                                .font(.system(.subheadline, design: .rounded))
+                            Text(CurrencyManager.shared.format(item.amount, currency: currency))
+                                .font(DesignSystem.bodyFont(13))
                                 .foregroundColor(.white.opacity(0.8))
                         }
                     }
@@ -390,6 +631,14 @@ struct BespokeBalancesView: View {
         .padding(.horizontal, 24)
         .padding(.bottom, 16)
         .shadow(color: Color.black.opacity(0.15), radius: 15, y: 8)
+    }
+
+    private var activeRegion: AppRegion {
+        AppRegion(rawValue: selectedRegion) ?? RegionManager.shared.currentRegion
+    }
+
+    private var settlementRegion: AppRegion {
+        settlementRecipient?.regionCode.flatMap(AppRegion.init(rawValue:)) ?? activeRegion
     }
 
     private func calculateBalances() {
@@ -439,16 +688,68 @@ struct BespokeBalancesView: View {
 
     private func loadAuthoritativeBalances() async {
         do {
-            let remoteBalances = try await CleaveAPI.shared.fetchBalances(receiptID: receiptId)
-            let breakdowns = Dictionary(
-                uniqueKeysWithValues: memberBalances.map { ($0.0, $0.2) }
-            )
-            memberBalances = remoteBalances.map { balance in
-                let memberID = balance.userId.uuidString
-                return (memberID, balance.totalOwed, breakdowns[memberID] ?? [])
-            }.sorted { $0.1 > $1.1 }
+            let review = try await CleaveAPI.shared.fetchReceiptReview(receiptID: receiptId)
+            applyAuthoritativeReview(review)
+        } catch is CancellationError {
+            return
+        } catch let error as URLError where error.code == .cancelled {
+            return
         } catch {
             ErrorManager.shared.showError(error.localizedDescription)
+        }
+    }
+
+    @MainActor
+    private func applyAuthoritativeReview(_ review: ReceiptReview) {
+        pendingMemberIDs = (review.receipt.participants ?? [])
+            .filter { !$0.hasSubmitted }
+            .map(\.userId)
+        memberBalances = review.balances.map { balance in
+            let memberID = balance.userId.uuidString
+            var breakdown = balance.items.map {
+                BreakdownItem(name: $0.name, amount: $0.amount)
+            }
+            if balance.taxShare > 0 { breakdown.append(BreakdownItem(name: "Tax share", amount: balance.taxShare)) }
+            if balance.tipShare > 0 { breakdown.append(BreakdownItem(name: "Tip share", amount: balance.tipShare)) }
+            if balance.discountShare > 0 { breakdown.append(BreakdownItem(name: "Discount share", amount: -balance.discountShare)) }
+            return (memberID, balance.totalOwed, breakdown)
+        }.sorted { $0.1 > $1.1 }
+    }
+
+    private var pendingMembersCard: some View {
+        VStack(alignment: .leading, spacing: 10) {
+            Label("Waiting on", systemImage: "clock")
+                .font(DesignSystem.titleFont(14))
+            ForEach(pendingMemberIDs, id: \.self) { memberID in
+                let name = store.getGroup(id: groupId)?.members.first(where: { $0.id == memberID })?.preferredName ?? "Member"
+                HStack {
+                    Text(name)
+                    Spacer()
+                    Text("PENDING")
+                        .font(DesignSystem.labelFont(9))
+                        .tracking(1)
+                }
+                .font(DesignSystem.bodyFont(13))
+            }
+        }
+        .foregroundStyle(.white.opacity(0.88))
+        .padding(18)
+        .background(Color.black.opacity(0.14))
+        .clipShape(RoundedRectangle(cornerRadius: 16, style: .continuous))
+        .padding(.horizontal, 24)
+        .padding(.top, 14)
+    }
+
+    @MainActor
+    private func loadSettlementRecipient() async {
+        do {
+            let receiptUUID = UUID(uuidString: receiptId)
+            let receipt = try await CleaveAPI.shared.fetchReceipts(groupID: groupId)
+                .first(where: { $0.id == receiptUUID })
+            guard let adminID = receipt?.adminId else { return }
+            settlementRecipient = store.getGroup(id: groupId)?.members.first(where: { $0.id == adminID })
+        } catch {
+            settlementRecipient = nil
         }
     }
 
@@ -457,20 +758,20 @@ struct BespokeBalancesView: View {
 
         let subtotal = items.reduce(0) { $0 + $1.price }
 
-        summary += "Subtotal: \(CurrencyManager.shared.format(subtotal))\n"
-        summary += "Tax: \(CurrencyManager.shared.format(tax))\n"
-        summary += "Tip: \(CurrencyManager.shared.format(tip))\n"
+        summary += "Subtotal: \(CurrencyManager.shared.format(subtotal, currency: currency))\n"
+        summary += "Tax: \(CurrencyManager.shared.format(tax, currency: currency))\n"
+        summary += "Tip: \(CurrencyManager.shared.format(tip, currency: currency))\n"
         if discount > 0 {
-            summary += "Discount: -\(CurrencyManager.shared.format(discount))\n"
+            summary += "Discount: -\(CurrencyManager.shared.format(discount, currency: currency))\n"
         }
-        summary += "Total: \(CurrencyManager.shared.format(fullReceiptTotal))\n\n"
+        summary += "Total: \(CurrencyManager.shared.format(fullReceiptTotal, currency: currency))\n\n"
 
         summary += "--- Balances ---\n"
         for (member, amount, _) in memberBalances {
             if amount > 0 {
                 let name = store.getGroup(id: groupId)?.members
-                    .first(where: { $0.id.uuidString == member })?.displayName ?? "Member"
-                summary += "\(name) owes \(CurrencyManager.shared.format(amount))\n"
+                    .first(where: { $0.id.uuidString == member })?.preferredName ?? "Member"
+                summary += "\(name) owes \(CurrencyManager.shared.format(amount, currency: currency))\n"
             }
         }
 
