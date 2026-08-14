@@ -30,6 +30,8 @@ const SECURITY_HEADERS: Record<string, string> = {
   "X-Frame-Options": "DENY",
 };
 
+const CANONICAL_SITE_ORIGIN = "https://navneetajith-eng.github.io/cleave";
+
 function secure(response: Response): Response {
   const headers = new Headers(response.headers);
   for (const [name, value] of Object.entries(SECURITY_HEADERS)) headers.set(name, value);
@@ -49,6 +51,21 @@ function secure(response: Response): Response {
 const worker = {
   async fetch(request: Request, env: Env, ctx: ExecutionContext): Promise<Response> {
     const url = new URL(request.url);
+
+    // Existing TestFlight builds contain the original hosted URL. Redirect at
+    // the server so those installed builds reach Cleave's canonical site
+    // without requiring another binary upload.
+    if (url.hostname.endsWith(".chatgpt.site")) {
+      const pathname = url.pathname === "/" ? "/" : `${url.pathname.replace(/\/$/, "")}/`;
+      const destination = `${CANONICAL_SITE_ORIGIN}${pathname}${url.search}`;
+      return secure(new Response(null, {
+        status: 308,
+        headers: {
+          Location: destination,
+          "Cache-Control": "public, max-age=300",
+        },
+      }));
+    }
 
     if (url.pathname === "/_vinext/image") {
       const allowedWidths = [...DEFAULT_DEVICE_SIZES, ...DEFAULT_IMAGE_SIZES];

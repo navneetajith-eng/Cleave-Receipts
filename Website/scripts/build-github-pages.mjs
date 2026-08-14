@@ -43,6 +43,7 @@ for (const [route, destination] of routes) {
 await cp(new URL("../dist/client/_next/static/css/", import.meta.url), new URL("_next/static/css/", outputRoot), { recursive: true });
 await cp(new URL("../public/cleave-app-icon.png", import.meta.url), new URL("cleave-app-icon.png", outputRoot));
 await cp(new URL("../public/cleave-logo-enhanced.png", import.meta.url), new URL("cleave-logo-enhanced.png", outputRoot));
+await cp(new URL("../public/og.png", import.meta.url), new URL("og.png", outputRoot));
 await writeFile(new URL(".nojekyll", outputRoot), "");
 await writeFile(new URL("README.md", outputRoot), "# Cleave Privacy & Support\n\nOfficial public privacy and support pages for Cleave.\n");
 

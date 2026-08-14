@@ -48,3 +48,18 @@ test("renders support and deletion guidance", async () => {
   assert.match(html, /Is Cleave impossible to hack/);
   assert.match(html, /two business days/);
 });
+
+test("redirects the legacy TestFlight privacy URL to GitHub Pages", async () => {
+  const workerUrl = new URL("../dist/server/index.js", import.meta.url);
+  workerUrl.searchParams.set("test", `${process.pid}-${Date.now()}-legacy-redirect`);
+  const { default: worker } = await import(workerUrl.href);
+  const response = await worker.fetch(
+    new Request("https://cleave-privacy-support.ryliemadisono.chatgpt.site/privacy?from=app"),
+    { ASSETS: { fetch: async () => new Response("Not found", { status: 404 }) } },
+    { waitUntil() {}, passThroughOnException() {} },
+  );
+
+  assert.equal(response.status, 308);
+  assert.equal(response.headers.get("location"), "https://navneetajith-eng.github.io/cleave/privacy/?from=app");
+  assert.equal(response.headers.get("x-content-type-options"), "nosniff");
+});
