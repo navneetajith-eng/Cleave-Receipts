@@ -79,5 +79,8 @@ jobs:
           image: ${{ env.REGION }}-docker.pkg.dev/${{ env.PROJECT_ID }}/${{ env.REPO_NAME }}/${{ env.SERVICE_NAME }}:${{ github.sha }}
           flags: '--allow-unauthenticated'
 
+      - name: Route production traffic to the deployed revision
+        run: gcloud run services update-traffic "$SERVICE_NAME" --region "$REGION" --to-latest --quiet
+
       - name: Verify deployed API health
         run: curl --fail --show-error --silent --retry 5 --retry-all-errors "${{ steps.deploy.outputs.url }}/health"
