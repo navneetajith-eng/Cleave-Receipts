@@ -1,0 +1,7 @@
+title = "Cleave Gitleaks configuration"
+
+[allowlist]
+description = "The JWT signing value used by authentication unit tests is synthetic and non-production."
+regexes = [
+  '''^test-signing-secret-that-is-at-least-32-bytes$''',
+]
